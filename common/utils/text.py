@@ -1,10 +1,7 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from unicodedata import normalize
 
 from django.utils import six
-from django.utils.encoding import force_text, python_2_unicode_compatible
+from django.utils.encoding import force_text
 from django.utils.functional import lazy
 from django.utils.safestring import mark_safe
 from django.utils.translation import pgettext, ugettext_lazy as _
@@ -24,7 +21,7 @@ def capfirst(text):
     out = force_text(text)
     if not out:
         return out
-    return out[0].upper() + out[1:]
+    return f'{out[0].upper()}{out[1:]}'
 
 
 def str_list(iterable, infix=None, last_infix=None):
@@ -46,8 +43,8 @@ def str_list(iterable, infix=None, last_infix=None):
 
     suffix = ''
     if len(l) > 1:
-        suffix = last_infix + l.pop()
-    return infix.join(l) + suffix
+        suffix = f'{last_infix}{l.pop()}'
+    return f'{infix.join(l)}{suffix}'
 
 
 def str_list_w_last(iterable, infix=None, last_infix=None,
@@ -132,7 +129,7 @@ def to_roman(integer):
     CM
     """
     if integer < 1:
-        raise ValueError('%s is not strictly positive.' % integer)
+        raise ValueError(f'{integer} is not strictly positive.')
     roman = ''
     for n, s in ROMAN_BINDINGS:
         while integer >= n:
@@ -157,7 +154,6 @@ def from_roman(roman):
     return integer
 
 
-@python_2_unicode_compatible
 class BiGrouper(object):
     def __init__(self, iterator):
         self.iterator = iterator
@@ -183,7 +179,7 @@ class BiGrouper(object):
         for value, keys in keys_grouper.items():
             values_grouper[tuple(keys)].append(value)
         return mark_safe(str_list([
-            ('%s [%s]' % (values, keys) if keys else values)
+            (f'{values} [{keys}]' if keys else values)
             for values, keys in [(
                 str_list_w_last([self.get_verbose_value(value, keys)
                                  for value in values]),

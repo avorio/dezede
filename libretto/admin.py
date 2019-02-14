@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from functools import partial, reduce
 import operator
 
@@ -64,7 +61,7 @@ class CustomBaseModel(BaseModelAdmin):
     def get_queryset(self, request):
         user = request.user
         qs = super(CustomBaseModel, self).get_queryset(request)
-        if not user.is_superuser and IS_POPUP_VAR not in request.REQUEST:
+        if not user.is_superuser and IS_POPUP_VAR not in request.GET:
             qs = qs.filter(
                 owner__in=user.get_descendants(include_self=True))
         return qs
@@ -457,14 +454,14 @@ class CommonAdmin(CustomBaseModel, ModelAdmin):
         return super(CommonAdmin, self).get_form(request, obj=obj, **kwargs)
 
     def save_model(self, request, obj, form, change):
-        if obj.owner is None:
+        if hasattr(obj, 'owner') and obj.owner is None:
             obj.owner = request.user
         super(CommonAdmin, self).save_model(request, obj, form, change)
 
     def save_formset(self, request, form, formset, change):
         instances = formset.save(commit=False)
         for instance in instances:
-            if getattr(instance, 'owner', None) is None:
+            if hasattr(instance, 'owner') and instance.owner is None:
                 instance.owner = request.user
             instance.save()
         formset.save()
@@ -630,19 +627,21 @@ class SaisonAdmin(VersionAdmin, CommonAdmin):
 @register(Profession)
 class ProfessionAdmin(VersionAdmin, AutoriteAdmin):
     list_display = ('__str__', 'nom', 'nom_pluriel', 'nom_feminin',
-                    'parent', 'classement')
-    list_editable = ('nom', 'nom_pluriel', 'nom_feminin', 'parent',
-                     'classement')
+                    'nom_feminin_pluriel', 'parent', 'classement')
+    list_editable = ('nom', 'nom_pluriel', 'nom_feminin',
+                     'nom_feminin_pluriel', 'parent', 'classement')
     search_fields = (
-        'nom__unaccent', 'nom_pluriel__unaccent', 'nom_feminin__unaccent')
+        'nom__unaccent', 'nom_pluriel__unaccent',
+        'nom_feminin__unaccent', 'nom_feminin_pluriel__unaccent')
     raw_id_fields = ('parent',)
     autocomplete_lookup_fields = {
         'fk': ('parent',),
     }
     fieldsets = (
         (None, {
-            'fields': ('nom', 'nom_pluriel', 'nom_feminin', 'parent',
-                       'classement'),
+            'fields': ('nom', 'nom_pluriel',
+                       'nom_feminin', 'nom_feminin_pluriel',
+                       'parent', 'classement'),
         }),
     )
 
@@ -686,7 +685,7 @@ class IndividuAdmin(VersionAdmin, AutoriteAdmin):
             'fields': ('pseudonyme',
                        'prenoms_complets',
                        ('particule_nom_naissance', 'nom_naissance'),
-                       'designation', 'biographie', 'isni'),
+                       'designation', 'biographie', ('isni', 'sans_isni')),
         }),
     )
     fieldsets_and_inlines_order = ('f', 'f', 'f', 'f', 'i', 'i')
@@ -721,7 +720,8 @@ class EnsembleAdmin(VersionAdmin, AutoriteAdmin):
     }
     fieldsets = (
         (None, {
-            'fields': (('particule_nom', 'nom'), 'type', 'siege'),
+            'fields': (('particule_nom', 'nom'), 'type', 'siege',
+                       ('isni', 'sans_isni')),
         }),
         PERIODE_D_ACTIVITE_FIELDSET,
     )

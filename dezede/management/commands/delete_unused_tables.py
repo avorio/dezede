@@ -1,5 +1,3 @@
-# coding: utf-8
-
 from __future__ import print_function
 from django.db import connection, transaction
 from django.core.management.base import NoArgsCommand
@@ -37,7 +35,7 @@ class Command(NoArgsCommand):
             print('    ' + table)
 
         while True:
-            delete = raw_input('\nDo you want to delete them? [y|n] ').lower()
+            delete = input('\nDo you want to delete them? [y|n] ').lower()
             if delete and delete in 'yn':
                 break
             print('Invalid choice, you must enter "y" or "n".')
@@ -47,4 +45,4 @@ class Command(NoArgsCommand):
 
         with transaction.commit_on_success():
             for table in tables:
-                cursor.execute('DROP TABLE %s' % table)
+                cursor.execute(f'DROP TABLE {table}')

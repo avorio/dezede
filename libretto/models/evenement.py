@@ -1,22 +1,18 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 import re
 import warnings
 from django.apps import apps
-from django.core.urlresolvers import reverse
+from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import connection
 from django.db.models import (
     CharField, ForeignKey, ManyToManyField, BooleanField,
     PositiveSmallIntegerField, permalink, Q,
-    PROTECT, Count, DecimalField, SmallIntegerField, Max)
-from django.utils.encoding import (
-    python_2_unicode_compatible, force_text)
+    PROTECT, Count, DecimalField, SmallIntegerField, Max, CASCADE)
+from django.urls import reverse
+from django.utils.encoding import force_text
 from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
-from django.utils.translation import (
-    ungettext_lazy, ugettext, ugettext_lazy as _)
+from django.utils.translation import ugettext, ugettext_lazy as _
 from cache_tools import model_method_cached
 from .base import (
     CommonModel, AutoriteModel, CommonQuerySet, CommonManager,
@@ -87,16 +83,15 @@ class ElementDeDistributionManager(CommonManager):
         return self.get_queryset().html(tags=tags)
 
 
-@python_2_unicode_compatible
 class ElementDeDistribution(CommonModel):
     # Une contrainte de base de données existe dans les migrations
     # pour éviter que les deux soient remplis.
     evenement = ForeignKey(
         'Evenement', null=True, blank=True, related_name='distribution',
-        verbose_name=_('événement'))
+        verbose_name=_('événement'), on_delete=CASCADE)
     element_de_programme = ForeignKey(
         'ElementDeProgramme', null=True, blank=True, related_name='distribution',
-        verbose_name=_('élément de programme'))
+        verbose_name=_('élément de programme'), on_delete=CASCADE)
 
     # Une contrainte de base de données existe dans les migrations
     # pour éviter que les deux soient remplis.
@@ -119,10 +114,8 @@ class ElementDeDistribution(CommonModel):
     objects = ElementDeDistributionManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('élément de distribution',
-                                      'éléments de distribution', 1)
-        verbose_name_plural = ungettext_lazy('élément de distribution',
-                                             'éléments de distribution', 2)
+        verbose_name = _('élément de distribution')
+        verbose_name_plural = _('éléments de distribution')
         ordering = ('partie', 'profession', 'individu', 'ensemble')
 
     @staticmethod
@@ -158,7 +151,6 @@ class ElementDeDistribution(CommonModel):
         )
 
 
-@python_2_unicode_compatible
 class TypeDeCaracteristiqueDeProgramme(CommonModel):
     nom = CharField(_('nom'), max_length=200, help_text=ex(_('tonalité')),
                     unique=True, db_index=True)
@@ -167,12 +159,8 @@ class TypeDeCaracteristiqueDeProgramme(CommonModel):
     classement = SmallIntegerField(_('classement'), default=1)
 
     class Meta(object):
-        verbose_name = ungettext_lazy(
-            "type de caractéristique de programme",
-            "types de caractéristique de programme", 1)
-        verbose_name_plural = ungettext_lazy(
-            "type de caractéristique de programme",
-            "types de caractéristique de programme", 2)
+        verbose_name = _('type de caractéristique de programme')
+        verbose_name_plural = _('types de caractéristique de programme')
         ordering = ('classement',)
 
     @staticmethod
@@ -221,7 +209,6 @@ class CaracteristiqueManager(CommonManager):
         return self.get_queryset().html(tags=tags, caps=caps)
 
 
-@python_2_unicode_compatible
 class CaracteristiqueDeProgramme(CommonModel):
     type = ForeignKey(
         'TypeDeCaracteristiqueDeProgramme', null=True, blank=True,
@@ -238,12 +225,8 @@ class CaracteristiqueDeProgramme(CommonModel):
 
     class Meta(object):
         unique_together = ('type', 'valeur')
-        verbose_name = ungettext_lazy(
-            'caractéristique de programme',
-            'caractéristiques de programme', 1)
-        verbose_name_plural = ungettext_lazy(
-            'caractéristique de programme',
-            'caractéristiques de programme', 2)
+        verbose_name = _('caractéristique de programme')
+        verbose_name_plural = _('caractéristiques de programme')
         ordering = ('type', 'classement', 'valeur')
 
     @staticmethod
@@ -261,9 +244,10 @@ class CaracteristiqueDeProgramme(CommonModel):
     html.allow_tags = True
 
     def __str__(self):
+        valeur = strip_tags(self.valeur)
         if self.type:
-            return force_text(self.type) + ' : ' + strip_tags(self.valeur)
-        return strip_tags(self.valeur)
+            return f'{self.type} : {valeur}'
+        return valeur
 
     @staticmethod
     def autocomplete_search_fields():
@@ -290,10 +274,9 @@ class ElementDeProgrammeManager(CommonManager):
         return self.get_queryset().fill_numeros()
 
 
-@python_2_unicode_compatible
 class ElementDeProgramme(CommonModel):
     evenement = ForeignKey('Evenement', related_name='programme',
-                           verbose_name=_('événement'))
+                           verbose_name=_('événement'), on_delete=CASCADE)
     oeuvre = ForeignKey(
         'Oeuvre', related_name='elements_de_programme',
         verbose_name=_('œuvre'), blank=True, null=True, on_delete=PROTECT,
@@ -320,10 +303,8 @@ class ElementDeProgramme(CommonModel):
     objects = ElementDeProgrammeManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('élément de programme',
-                                      'éléments de programme', 1)
-        verbose_name_plural = ungettext_lazy('élément de programme',
-                                             'éléments de programme', 2)
+        verbose_name = _('élément de programme')
+        verbose_name_plural = _('éléments de programme')
         ordering = ('position',)
 
     @staticmethod
@@ -377,16 +358,16 @@ class ElementDeProgramme(CommonModel):
             out = distribution
             add_distribution = False
         else:
-            warnings.warn('Il manque des champs dans <%(class)s pk=%(pk)s>' %
-                          {'class': self.__class__.__name__, 'pk': self.pk})
+            warnings.warn(f'Il manque des champs '
+                          f'dans <{self.__class__.__name__} pk={self.pk}>')
             return ''
 
         caracteristiques = self.calc_caracteristiques(tags=tags)
         if caracteristiques:
-            out += ' [' + caracteristiques + ']'
+            out += f' [{caracteristiques}]'
 
         if add_distribution:
-            out += '. — ' + distribution
+            out += f'. — {distribution}'
 
         return mark_safe(out)
     html.short_description = _('rendu HTML')
@@ -449,11 +430,6 @@ class EvenementQuerySet(PublishedQuerySet):
 
     def prefetch_all(self, create_subquery=True):
         if create_subquery:
-            # TODO: Retirer ceci quand https://code.djangoproject.com/ticket/24196
-            #       sera corrigé et dans notre version de Django.
-            if self.query.low_mark == self.query.high_mark:
-                return self
-
             qs = Evenement.objects.filter(
                 pk__in=list(self.values_list('pk', flat=True)))
             qs.query.order_by = self.query.order_by
@@ -532,7 +508,6 @@ plus_separated_integers_validator = RegexValidator(
     _('Entrez uniquement des entiers séparés par des « + ».'), 'invalid')
 
 
-@python_2_unicode_compatible
 class Evenement(AutoriteModel):
     debut = AncrageSpatioTemporel(('date',),
                                   verbose_name=_('début'))
@@ -554,8 +529,8 @@ class Evenement(AutoriteModel):
     objects = EvenementManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('événement', 'événements', 1)
-        verbose_name_plural = ungettext_lazy('événement', 'événements', 2)
+        verbose_name = _('événement')
+        verbose_name_plural = _('événements')
         ordering = ('debut_date', 'debut_heure', 'debut_lieu',
                     'debut_lieu_approx')
         permissions = (('can_change_status', _('Peut changer l’état')),)
@@ -660,10 +635,17 @@ class Evenement(AutoriteModel):
 
         return qs.extra(where=(extra_where,), params=extra_params)
 
+    def clean(self):
+        if self.fin_lieu is not None and self.debut_lieu is None:
+            raise ValidationError(
+                _('Le lieu de fin est rempli sans lieu de début. '
+                  'Merci de retirer le lieu de fin '
+                  'ou remplir le lieu de début.'))
+
     def __str__(self):
         out = self.debut.date_str(False)
         out = capfirst(out)
-        out += '\u00A0> ' + self.html(False)
+        out += f'\u00A0> {self.html(False)}'
         return strip_tags(out)
 
     def related_label(self):

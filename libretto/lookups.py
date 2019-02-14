@@ -16,6 +16,8 @@ class PublicLookup(LookupChannel):
         return autocomplete_search(request, q, self.model, self.max_results)
 
     def format_match(self, obj):
+        if obj is None:
+            return ''
         out = getattr(obj, self.displayed_attr)
         if callable(out):
             out = out()
@@ -74,6 +76,11 @@ class CharFieldLookupChannel(LookupChannel):
 class SourceTitreLookup(CharFieldLookupChannel):
     model = Source
     attr = 'titre'
+
+
+class SourceLieuConservationLookup(CharFieldLookupChannel):
+    model = Source
+    attr = 'lieu_conservation'
 
 
 class IndividuPrenomsLookup(CharFieldLookupChannel):

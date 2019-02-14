@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.apps import apps
 from django.conf import settings
 
@@ -8,8 +5,8 @@ from django.core.validators import MinValueValidator
 from django.db.models import (
     Model, PositiveSmallIntegerField, TextField, FloatField, ForeignKey,
     OneToOneField, ManyToManyField, BooleanField, DateTimeField, QuerySet,
-    Max, Sum, F, SET_NULL)
-from django.utils.encoding import python_2_unicode_compatible, force_text
+    Max, Sum, F, SET_NULL, CASCADE)
+from django.utils.encoding import force_text
 from django.utils.formats import date_format
 from django.utils.translation import ugettext_lazy as _
 from examens.utils import AnnotatedDiff
@@ -17,7 +14,6 @@ from examens.utils import AnnotatedDiff
 from libretto.models import Fichier
 
 
-@python_2_unicode_compatible
 class Level(Model):
     number = PositiveSmallIntegerField(
         _('numéro'), unique=True, default=1,
@@ -42,11 +38,11 @@ def limit_choices_to_possible_sources():
 
 
 class LevelSource(Model):
-    level = ForeignKey(Level, related_name='level_sources',
+    level = ForeignKey(Level, related_name='level_sources', on_delete=CASCADE,
                        verbose_name=_('niveau'))
     source = OneToOneField(
         'libretto.source', limit_choices_to=limit_choices_to_possible_sources,
-        related_name='+', verbose_name=_('source'))
+        related_name='+', verbose_name=_('source'), on_delete=CASCADE)
 
     class Meta:
         verbose_name = _('source de niveau')
@@ -68,10 +64,9 @@ class TakenExamQuerySet(QuerySet):
                                              - F('taken_levels__start')))
 
 
-@python_2_unicode_compatible
 class TakenExam(Model):
     user = OneToOneField(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=CASCADE,
         related_name='+', verbose_name=_('utilisateur'))
     session = OneToOneField(
         'sessions.Session', null=True, blank=True, verbose_name=_('session'),
@@ -149,15 +144,16 @@ class TakenLevelQuerySet(QuerySet):
         return self.filter(end__isnull=False)
 
 
-@python_2_unicode_compatible
 class TakenLevel(Model):
     taken_exam = ForeignKey(TakenExam, related_name='taken_levels',
-                            verbose_name=_('examen passé'), editable=False)
+                            verbose_name=_('examen passé'), editable=False,
+                            on_delete=CASCADE)
     level = ForeignKey(
-        Level, verbose_name=_('niveau'), editable=False, related_name='+')
+        Level, verbose_name=_('niveau'), editable=False, related_name='+',
+        on_delete=CASCADE)
     source = ForeignKey(
         'libretto.Source', verbose_name=_('source'), editable=False,
-        related_name='+')
+        related_name='+', on_delete=CASCADE)
     transcription = TextField(verbose_name=_('transcription'))
     score = FloatField(_('note'), null=True, blank=True, editable=False)
     MAX_SCORE = 1.0

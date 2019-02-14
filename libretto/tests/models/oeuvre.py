@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 import os
 from django.utils.encoding import force_text
 from ...models import *
@@ -17,7 +14,7 @@ class OeuvreTestCase(CommonTestCase):
     ]
 
     def setUp(self):
-        # Force save to rebuild slug & MPTT fields
+        # Force save to rebuild slug & tree fields
         for oeuvre in Oeuvre.objects.all():
             oeuvre.save()
 

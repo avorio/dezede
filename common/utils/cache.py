@@ -1,12 +1,8 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
-
 from django.core.cache import cache
 
 
 def get_user_lock_cache_key(user):
-    return 'dossiers__export_en_cours__%s' % user.username
+    return f'dossiers__export_en_cours__{user.username}'
 
 
 def is_user_locked(user):

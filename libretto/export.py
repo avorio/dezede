@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.utils.encoding import force_text
 from django.utils.translation import ugettext_lazy as _
 
@@ -367,7 +364,7 @@ class EvenementExporter(CommonModelExporter):
         'fin_date_approx': 'date de fin (approximative)',
         'fin_heure_approx': 'heure de fin (approximative)',
         'debut_lieu': 'lieu de début', 'fin_lieu': 'lieu de fin',
-        'debut_lieu_approx': 'date de début (approximatif)',
+        'debut_lieu_approx': 'lieu de début (approximatif)',
         'fin_lieu_approx': 'date de fin (approximatif)',
     }
 

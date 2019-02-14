@@ -1,21 +1,19 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 import re
 
 from django.apps import apps
 from django.contrib.gis.geos import Polygon
 from django.core.exceptions import PermissionDenied
-from django.core.urlresolvers import reverse
 from django.db.models import Q
 from django.http import HttpResponseRedirect, Http404
 from django.shortcuts import redirect
+from django.urls import reverse
 from django.utils.encoding import force_text
 from django.utils.translation import ugettext_lazy as _
 from django.views.generic import ListView, DetailView
 from el_pagination.views import AjaxListView
 from haystack.query import SearchQuerySet
-from viewsets import ModelViewSet
+from tree.query import TreeQuerySetMixin
+from viewsets.model import ModelViewSet
 
 from common.utils.export import launch_export
 from common.utils.text import to_roman
@@ -89,7 +87,7 @@ class BaseEvenementListView(PublishedListView):
             objects = Model._default_manager.filter(pk__in=pk_list)
             # Inclus tous les événements impliquant les descendants
             # éventuels de chaque objet de value.
-            if hasattr(objects, 'get_descendants'):
+            if isinstance(objects, TreeQuerySetMixin):
                 objects = objects.get_descendants(include_self=True)
             value = objects
             if value.exists():
@@ -128,13 +126,7 @@ class BaseEvenementListView(PublishedListView):
         if search_query:
             sqs = SearchQuerySet().models(self.model)
             sqs = sqs.auto_query(search_query)
-            # Le slicing est là pour compenser un bug de haystack, qui va
-            # chercher les valeurs par paquets de 10, faisant parfois ainsi
-            # des centaines de requêtes à elasticsearch.
-            # FIXME: Utiliser une values_list quand cette issue sera résolue :
-            # https://github.com/toastdriven/django-haystack/issues/1019
-            pk_list = [r.pk for r in sqs[:10**6]]
-            qs = qs.filter(pk__in=pk_list)
+            qs = qs.filter(pk__in=sqs.values_list('pk', flat=True))
 
         filters = self.get_filters(data)
         qs = qs.filter(filters).distinct()
@@ -143,8 +135,8 @@ class BaseEvenementListView(PublishedListView):
             if data.get('par_saison', 'False') == 'True':
                 qs &= Saison.objects.between_years(start, end).evenements()
             else:
-                qs = qs.filter(debut_date__range=('%s-1-1' % start,
-                                                  '%s-12-31' % end))
+                qs = qs.filter(debut_date__range=(f'{start}-1-1',
+                                                  f'{end}-12-31'))
         except (TypeError, ValueError):
             pass
 
@@ -178,7 +170,9 @@ class BaseEvenementListView(PublishedListView):
     def get_cleaned_GET(self):
         new_qd = self.request.GET.copy()
         for k, v in tuple(new_qd.items()):
-            if k in self.BINDINGS and self.filter_re.match(v) is None:
+            if not v:
+                del new_qd[k]
+            elif k in self.BINDINGS and self.filter_re.match(v) is None:
                 del new_qd[k]
         return new_qd
 
@@ -217,7 +211,8 @@ class EvenementExport(BaseEvenementListView):
         if self.valid_form and export_format in jobs:
             launch_export(jobs[export_format], request, pk_list,
                           export_format, _('de %s événements') % len(pk_list))
-        return super(EvenementExport, self).get(request, *args, **kwargs)
+        return redirect(self.get_success_url()
+                        + '?' + self.get_cleaned_GET().urlencode())
 
 
 class EvenementGeoJson(BaseEvenementListView):
@@ -241,9 +236,6 @@ class EvenementGeoJson(BaseEvenementListView):
 
 class EvenementDetailView(PublishedDetailView):
     model = Evenement
-    # FIXME: Retirer les 2 lignes suivantes quand https://code.djangoproject.com/ticket/24689 sera résolu.
-    template_name = 'libretto/evenement_detail.html'
-    context_object_name = 'evenement'
 
     def get_queryset(self):
         qs = super(EvenementDetailView, self).get_queryset()
@@ -292,7 +284,7 @@ CENTURIES_VERBOSES = [
 ][::-1]
 
 CENTURIES_DATE_RANGES = {
-    str(i): ('%d00-1-1' % (i-1), '%d99-12-31' % (i-1)) for i in CENTURIES
+    f'{i}': (f'{i-1}00-1-1', f'{i-1}99-12-31') for i in CENTURIES
 }
 
 
@@ -499,7 +491,7 @@ class TreeNode(PublishedDetailView):
         context = super(TreeNode, self).get_context_data(**kwargs)
 
         if self.object is None:
-            children = self.model._tree_manager.root_nodes()
+            children = self.model.get_roots()
         else:
             children = self.object.get_children()
 

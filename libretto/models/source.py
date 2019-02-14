@@ -1,13 +1,9 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.db.models import (
-    CharField, ForeignKey, ManyToManyField, permalink, PROTECT, URLField)
-from django.utils.encoding import python_2_unicode_compatible
+    CharField, ForeignKey, ManyToManyField, permalink, PROTECT, URLField,
+    CASCADE)
 from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
-from django.utils.translation import (
-    ungettext_lazy, ugettext, ugettext_lazy as _)
+from django.utils.translation import ugettext, ugettext_lazy as _
 from tinymce.models import HTMLField
 from .base import (
     CommonModel, AutoriteModel, LOWER_MSG, PLURAL_MSG, calc_pluriel,
@@ -25,7 +21,6 @@ __all__ = (
 )
 
 
-@python_2_unicode_compatible
 class TypeDeSource(CommonModel, SlugModel):
     nom = CharField(_('nom'), max_length=200, help_text=LOWER_MSG, unique=True,
                     db_index=True)
@@ -34,9 +29,8 @@ class TypeDeSource(CommonModel, SlugModel):
     # TODO: Ajouter un classement et changer ordering en conséquence.
 
     class Meta(object):
-        verbose_name = ungettext_lazy('type de source', 'types de source', 1)
-        verbose_name_plural = ungettext_lazy('type de source',
-                                             'types de source', 2)
+        verbose_name = _('type de source')
+        verbose_name_plural = _('types de source')
         ordering = ('slug',)
 
     @staticmethod
@@ -64,17 +58,17 @@ class SourceQuerySet(PublishedQuerySet):
         sources = Source._meta.db_table
         return self.select_related('type').extra(select={
             '_has_others':
-            'EXISTS (SELECT 1 FROM %s WHERE source_id = %s.id AND type = %s)'
-            % (fichiers, sources, Fichier.OTHER),
+            f'EXISTS (SELECT 1 FROM {fichiers} '
+            f'WHERE source_id = {sources}.id AND type = {Fichier.OTHER})',
             '_has_images':
-            'EXISTS (SELECT 1 FROM %s WHERE source_id = %s.id AND type = %s)'
-            % (fichiers, sources, Fichier.IMAGE),
+            f'EXISTS (SELECT 1 FROM {fichiers} '
+            f'WHERE source_id = {sources}.id AND type = {Fichier.IMAGE})',
             '_has_audios':
-            'EXISTS (SELECT 1 FROM %s WHERE source_id = %s.id AND type = %s)'
-            % (fichiers, sources, Fichier.AUDIO),
+            f'EXISTS (SELECT 1 FROM {fichiers} '
+            f'WHERE source_id = {sources}.id AND type = {Fichier.AUDIO})',
             '_has_videos':
-            'EXISTS (SELECT 1 FROM %s WHERE source_id = %s.id AND type = %s)'
-            % (fichiers, sources, Fichier.VIDEO)}
+            f'EXISTS (SELECT 1 FROM {fichiers} '
+            f'WHERE source_id = {sources}.id AND type = {Fichier.VIDEO})'}
         ).only(
             'titre', 'numero', 'folio', 'page', 'lieu_conservation',
             'cote', 'url', 'transcription', 'date', 'date_approx',
@@ -146,7 +140,6 @@ class SourceManager(PublishedManager):
         return self.get_queryset().with_data_type(data_type)
 
 
-@python_2_unicode_compatible
 class Source(AutoriteModel):
     type = ForeignKey('TypeDeSource', related_name='sources',
                       help_text=ex(_('compte rendu')), verbose_name=_('type'),
@@ -171,8 +164,8 @@ class Source(AutoriteModel):
 
     transcription = HTMLField(_('transcription'), blank=True,
         help_text=_('Recopier la source ou un extrait en suivant les règles '
-                    'définies dans <a href="%s">le didacticiel.</a>')
-                  % '/examens/source')  # FIXME: Don’t hardcode this.
+                    'définies dans '  # FIXME: Don’t hardcode the URL.
+                    '<a href="/examens/source">le didacticiel.</a>'))
 
     evenements = ManyToManyField(
         'Evenement', through='SourceEvenement', related_name='sources',
@@ -194,8 +187,8 @@ class Source(AutoriteModel):
     objects = SourceManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('source', 'sources', 1)
-        verbose_name_plural = ungettext_lazy('source', 'sources', 2)
+        verbose_name = _('source')
+        verbose_name_plural = _('sources')
         ordering = ('date', 'titre', 'numero', 'page',
                     'lieu_conservation', 'cote')
         permissions = (('can_change_status', _('Peut changer l’état')),)
@@ -236,7 +229,7 @@ class Source(AutoriteModel):
         else:
             ancrage = None
         if self.cote:
-            conservation += ', ' + hlp(self.cote, 'cote', tags)
+            conservation += f", {hlp(self.cote, 'cote', tags)}"
         if self.titre:
             l = [cite(self.titre, tags)]
             if self.numero:
@@ -248,7 +241,7 @@ class Source(AutoriteModel):
             if self.page:
                 l.append(hlp(self.p(), ugettext('page'), tags))
             if self.lieu_conservation:
-                l[-1] += ' (%s)' % conservation
+                l[-1] += f' ({conservation})'
         else:
             l = [conservation]
             if ancrage is not None:
@@ -336,12 +329,12 @@ class Source(AutoriteModel):
     }
 
     DATA_TYPES_WITH_ICONS = (
-        (VIDEO, _(ICONS[VIDEO] + ' ' + 'Vidéo')),
-        (AUDIO, _(ICONS[AUDIO] + ' ' + 'Audio')),
-        (IMAGE, _(ICONS[IMAGE] + ' ' + 'Image')),
-        (OTHER, _(ICONS[OTHER] + ' ' + 'Autre')),
-        (TEXT, _(ICONS[TEXT] + ' ' + 'Texte')),
-        (LINK, _(ICONS[LINK] + ' ' + 'Lien')),
+        (VIDEO, _(f'{ICONS[VIDEO]} Vidéo')),
+        (AUDIO, _(f'{ICONS[AUDIO]} Audio')),
+        (IMAGE, _(f'{ICONS[IMAGE]} Image')),
+        (OTHER, _(f'{ICONS[OTHER]} Autre')),
+        (TEXT, _(f'{ICONS[TEXT]} Texte')),
+        (LINK, _(f'{ICONS[LINK]} Lien')),
     )
 
     @property
@@ -351,9 +344,11 @@ class Source(AutoriteModel):
 
 
 class SourceEvenement(TypographicModel):
-    source = ForeignKey(Source, related_name='sourceevenement_set')
+    source = ForeignKey(Source, related_name='sourceevenement_set',
+                        on_delete=CASCADE)
     evenement = ForeignKey('Evenement', verbose_name=_('événement'),
-                           related_name='sourceevenement_set')
+                           related_name='sourceevenement_set',
+                           on_delete=CASCADE)
 
     class Meta(object):
         db_table = 'libretto_source_evenements'
@@ -361,9 +356,11 @@ class SourceEvenement(TypographicModel):
 
 
 class SourceOeuvre(TypographicModel):
-    source = ForeignKey(Source, related_name='sourceoeuvre_set')
+    source = ForeignKey(Source, related_name='sourceoeuvre_set',
+                        on_delete=CASCADE)
     oeuvre = ForeignKey('Oeuvre', verbose_name=_('œuvre'),
-                        related_name='sourceoeuvre_set')
+                        related_name='sourceoeuvre_set',
+                        on_delete=CASCADE)
 
     class Meta(object):
         db_table = 'libretto_source_oeuvres'
@@ -371,9 +368,11 @@ class SourceOeuvre(TypographicModel):
 
 
 class SourceIndividu(TypographicModel):
-    source = ForeignKey(Source, related_name='sourceindividu_set')
+    source = ForeignKey(Source, related_name='sourceindividu_set',
+                        on_delete=CASCADE)
     individu = ForeignKey('Individu', verbose_name=_('individu'),
-                          related_name='sourceindividu_set')
+                          related_name='sourceindividu_set',
+                          on_delete=CASCADE)
 
     class Meta(object):
         db_table = 'libretto_source_individus'
@@ -381,9 +380,11 @@ class SourceIndividu(TypographicModel):
 
 
 class SourceEnsemble(TypographicModel):
-    source = ForeignKey(Source, related_name='sourceensemble_set')
+    source = ForeignKey(Source, related_name='sourceensemble_set',
+                        on_delete=CASCADE)
     ensemble = ForeignKey('Ensemble', verbose_name=_('ensemble'),
-                          related_name='sourceensemble_set')
+                          related_name='sourceensemble_set',
+                          on_delete=CASCADE)
 
     class Meta(object):
         db_table = 'libretto_source_ensembles'
@@ -391,9 +392,11 @@ class SourceEnsemble(TypographicModel):
 
 
 class SourceLieu(TypographicModel):
-    source = ForeignKey(Source, related_name='sourcelieu_set')
+    source = ForeignKey(Source, related_name='sourcelieu_set',
+                        on_delete=CASCADE)
     lieu = ForeignKey('Lieu', verbose_name=_('lieu'),
-                      related_name='sourcelieu_set')
+                      related_name='sourcelieu_set',
+                      on_delete=CASCADE)
 
     class Meta(object):
         db_table = 'libretto_source_lieux'
@@ -401,9 +404,10 @@ class SourceLieu(TypographicModel):
 
 
 class SourcePartie(TypographicModel):
-    source = ForeignKey(Source, related_name='sourcepartie_set')
+    source = ForeignKey(Source, related_name='sourcepartie_set',
+                        on_delete=CASCADE)
     partie = ForeignKey('Partie', verbose_name=_('rôle ou instrument'),
-                        related_name='sourcepartie_set')
+                        related_name='sourcepartie_set', on_delete=CASCADE)
 
     class Meta(object):
         db_table = 'libretto_source_parties'

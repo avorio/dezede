@@ -1,9 +1,7 @@
-# coding: utf-8
-
 import re
 from django.utils.safestring import mark_safe
 from easy_thumbnails.conf import Settings as thumbnail_settings
-from unipath import Path
+from pathlib import Path
 
 ugettext = lambda s: s
 
@@ -17,7 +15,7 @@ except ImportError:
     compat.register()
 
 
-BASE_DIR = Path(__file__).ancestor(3)
+BASE_DIR = Path(__file__).parent.parent.parent
 SITE_URL = '/'
 
 ADMINS = (
@@ -38,7 +36,7 @@ MAINTENANCE_IGNORE_URLS = (
 
 DATABASES = {
     'default': {
-        'ENGINE': 'transaction_hooks.backends.postgis',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
         'NAME': 'dezede',
         'USER': 'dezede',
         'CONN_MAX_AGE': None,
@@ -51,9 +49,11 @@ DATABASES = {
 LANGUAGE_CODE = 'fr'
 TIME_ZONE = 'Europe/Paris'
 LANGUAGES = (
-    ('fr', ugettext(u'Français')),
-    # ('en', ugettext('English')),
-    # ('de', ugettext('Deutsch')),
+    ('de', ugettext('Deutsch')),
+    ('en', ugettext('English')),
+    ('es', ugettext('Español')),
+    ('fr', ugettext('Français')),
+    ('it', ugettext('Italiano')),
 )
 USE_I18N = True
 USE_L10N = True
@@ -61,7 +61,7 @@ USE_TZ = True
 
 SITE_ID = 1
 
-MEDIA_ROOT = BASE_DIR.child('media')
+MEDIA_ROOT = str(BASE_DIR / 'media')
 MEDIA_URL = SITE_URL + 'media/'
 
 # Make this unique, and don't share it with anybody.
@@ -72,15 +72,16 @@ WSGI_APPLICATION = 'dezede.wsgi.application'
 ROOT_URLCONF = 'dezede.urls'
 
 
-STATIC_ROOT = BASE_DIR.child('static')
+STATIC_ROOT = str(BASE_DIR / 'static')
 STATIC_URL = SITE_URL + 'static/'
+STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
 STATICFILES_FINDERS = (
     'django.contrib.staticfiles.finders.FileSystemFinder',
     'django.contrib.staticfiles.finders.AppDirectoriesFinder',
     'compressor.finders.CompressorFinder',
 )
 STATICFILES_DIRS = (
-    BASE_DIR.child('dezede', 'static'),
+    str(BASE_DIR / 'dezede/static'),
 )
 
 
@@ -113,7 +114,7 @@ INSTALLED_APPS = (
     'dossiers',
     'examens',
     'afo',
-    'mptt',
+    'tree',
     'el_pagination',
     'tablature',
     'tinymce',
@@ -141,15 +142,23 @@ MIDDLEWARE_CLASSES = (
     'dezede.middlewares.MaintenanceModeMiddleware',
 )
 
-TEMPLATE_CONTEXT_PROCESSORS = (
-    'django.contrib.auth.context_processors.auth',
-    'django.core.context_processors.debug',
-    'django.core.context_processors.request',
-    'django.core.context_processors.i18n',
-    'django.core.context_processors.media',
-    'django.core.context_processors.static',
-    'django.contrib.messages.context_processors.messages',
-)
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.contrib.auth.context_processors.auth',
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.template.context_processors.i18n',
+                'django.template.context_processors.media',
+                'django.template.context_processors.static',
+                'django.contrib.messages.context_processors.messages',
+            ]
+        },
+    },
+]
 
 LOCALE_PATHS = (
     'locale',
@@ -270,6 +279,19 @@ ELASTICSEARCH_INDEX_SETTINGS = {
                     ],
                 }
             },
+            'tokenizer': {
+                'haystack_ngram_tokenizer': {
+                    'type': 'nGram',
+                    'min_gram': 3,
+                    'max_gram': 15,
+                },
+                'haystack_edgengram_tokenizer': {
+                    'type': 'edgeNGram',
+                    'min_gram': 2,
+                    'max_gram': 15,
+                    'side': 'front'
+                }
+            },
             'filter': {
                 'snowball_fr': {
                     'type': 'snowball',
@@ -289,7 +311,7 @@ ELASTICSEARCH_INDEX_SETTINGS = {
                 },
                 'haystack_ngram': {
                     'type': 'nGram',
-                    'min_gram': 2,
+                    'min_gram': 3,
                     'max_gram': 15,
                 },
                 'haystack_edgengram': {
@@ -298,14 +320,17 @@ ELASTICSEARCH_INDEX_SETTINGS = {
                     'max_gram': 15,
                 }
             }
-        }
+        },
+        'index': {
+            'max_result_window': 1000000,
+        },
     }
 }
 
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'unix:///run/redis/redis.sock',
+        'LOCATION': 'unix:///var/run/redis/redis-server.sock',
         'KEY_PREFIX': '2Z',
         'TIMEOUT': None,  # seconds
     }
@@ -320,8 +345,9 @@ COMPRESS_CSS_FILTERS = (
     'compressor.filters.css_default.CssAbsoluteFilter',
     'compressor.filters.cssmin.CSSMinFilter',
 )
+NPM_BINARY_PATH = BASE_DIR / 'node_modules/.bin/'
 COMPRESS_PRECOMPILERS = (
-    ('text/less', 'lessc {infile} {outfile}'),
+    ('text/less', f"{NPM_BINARY_PATH / 'lessc'} {{infile}} {{outfile}}"),
     ('text/x-scss', 'django_libsass.SassCompiler'),
 )
 
@@ -341,6 +367,8 @@ AJAX_LOOKUP_CHANNELS = {
     'elementdeprogramme__autre': ('libretto.lookups',
                                   'ElementDeProgrammeAutreLookup'),
     'source__titre': ('libretto.lookups', 'SourceTitreLookup'),
+    'source__lieu_conservation': ('libretto.lookups',
+                                  'SourceLieuConservationLookup'),
 }
 
 REST_FRAMEWORK = {
@@ -349,7 +377,9 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
     ),
-    'DEFAULT_FILTER_BACKENDS': ['rest_framework.filters.DjangoFilterBackend'],
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend'
+    ],
     'DEFAULT_THROTTLE_CLASSES': (
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle'
@@ -358,6 +388,7 @@ REST_FRAMEWORK = {
         'anon': '100/day',
         'user': '600/day',
     },
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
 }
 

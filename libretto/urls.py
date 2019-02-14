@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.conf.urls import *
 from .api.rest import router as api_router
 from libretto.views import TreeNode, EnsembleViewSet, EvenementExport
@@ -10,7 +7,7 @@ from .views import *
 __all__ = ('urlpatterns',)
 
 
-urlpatterns = patterns('',
+urlpatterns = [
     url(r'^', include(LieuViewSet().urls)),
     url(r'^', include(IndividuViewSet().urls)),
     url(r'^', include(EnsembleViewSet().urls)),
@@ -28,4 +25,4 @@ urlpatterns = patterns('',
     url(r'^tree_node/(?P<app_label>[\w_]+)/(?P<model_name>\w+)/(?P<attr>[\w_]+)/(?P<pk>\d+)?$',
         TreeNode.as_view(), name='tree_node'),
     url(r'^api/', include(api_router.urls)),
-)
+]

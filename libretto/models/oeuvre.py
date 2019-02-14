@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from collections import OrderedDict
 import re
 
@@ -11,14 +8,14 @@ from django.core.validators import RegexValidator
 from django.db.models import (
     CharField, ManyToManyField, ForeignKey, IntegerField,
     BooleanField, permalink, SmallIntegerField, PROTECT, Count,
-    PositiveSmallIntegerField)
-from django.utils.encoding import python_2_unicode_compatible, force_text
+    PositiveSmallIntegerField, CASCADE)
+from django.utils.encoding import force_text
 from django.utils.html import strip_tags, format_html
 from django.utils.safestring import mark_safe
-from django.utils.translation import (
-    ungettext_lazy, ugettext, ugettext_lazy as _)
-from mptt.fields import TreeForeignKey
-from mptt.models import MPTTModel
+from django.utils.translation import ugettext, ugettext_lazy as _
+from tree.fields import PathField
+from tree.models import TreeModelMixin
+
 from cache_tools import model_method_cached
 from .base import (
     CommonModel, AutoriteModel, LOWER_MSG, PLURAL_MSG, calc_pluriel, SlugModel,
@@ -39,7 +36,6 @@ __all__ = (
 )
 
 
-@python_2_unicode_compatible
 class GenreDOeuvre(CommonModel, SlugModel):
     nom = CharField(_('nom'), max_length=255, help_text=LOWER_MSG, unique=True,
                     db_index=True)
@@ -57,9 +53,8 @@ class GenreDOeuvre(CommonModel, SlugModel):
                               blank=True, verbose_name=_('parents'))
 
     class Meta(object):
-        verbose_name = ungettext_lazy('genre d’œuvre', 'genres d’œuvre', 1)
-        verbose_name_plural = ungettext_lazy('genre d’œuvre',
-                                             'genres d’œuvre', 2)
+        verbose_name = _('genre d’œuvre')
+        verbose_name_plural = _('genres d’œuvre')
         ordering = ('nom',)
 
     @staticmethod
@@ -77,7 +72,6 @@ class GenreDOeuvre(CommonModel, SlugModel):
         return 'nom__unaccent__icontains', 'nom_pluriel__unaccent__icontains'
 
 
-@python_2_unicode_compatible
 class Partie(AutoriteModel, UniqueSlugModel):
     """
     Partie de l’œuvre, c’est-à-dire typiquement un rôle ou un instrument pour
@@ -101,23 +95,21 @@ class Partie(AutoriteModel, UniqueSlugModel):
     oeuvre = ForeignKey(
         'Oeuvre', verbose_name=_('œuvre'), blank=True, null=True,
         related_name='parties',
-        help_text=_('Ne remplir que pour les rôles.'))
+        help_text=_('Ne remplir que pour les rôles.'), on_delete=CASCADE)
     # TODO: Changer le verbose_name en un genre de "types de voix"
     # pour les rôles, mais en plus générique (ou un help_text).
     professions = ManyToManyField(
         'Profession', related_name='parties', verbose_name=_('professions'),
-        blank=True, help_text=_('La ou les profession(s) capable(s) '
-                                'de jouer ce rôle ou cet instrument.'))
+        blank=True)
     parent = ForeignKey('self', related_name='enfants', blank=True, null=True,
-                        verbose_name=_('rôle ou instrument parent'))
+                        verbose_name=_('rôle ou instrument parent'),
+                        on_delete=CASCADE)
     classement = SmallIntegerField(_('classement'), default=1, db_index=True)
 
     class Meta(object):
         unique_together = ('nom', 'parent', 'oeuvre')
-        verbose_name = ungettext_lazy('rôle ou instrument',
-                                      'rôles et instruments', 1)
-        verbose_name_plural = ungettext_lazy('rôle ou instrument',
-                                             'rôles et instruments', 2)
+        verbose_name = _('rôle ou instrument')
+        verbose_name_plural = _('rôles et instruments')
         ordering = ('type', 'classement', 'nom',)
         permissions = (('can_change_status', _('Peut changer l’état')),)
 
@@ -172,7 +164,7 @@ class Partie(AutoriteModel, UniqueSlugModel):
     def related_label(self):
         txt = super(Partie, self).related_label()
         if self.oeuvre is not None:
-            txt += ' (' + force_text(self.oeuvre) + ')'
+            txt += f' ({self.oeuvre})'
         return txt
 
     @staticmethod
@@ -196,10 +188,9 @@ class PupitreManager(CommonManager):
         return self.get_queryset().oeuvres()
 
 
-@python_2_unicode_compatible
 class Pupitre(CommonModel):
     oeuvre = ForeignKey('Oeuvre', related_name='pupitres',
-                        verbose_name=_('œuvre'))
+                        verbose_name=_('œuvre'), on_delete=CASCADE)
     partie = ForeignKey(
         'Partie', related_name='pupitres',
         verbose_name=_('rôle ou instrument'), on_delete=PROTECT)
@@ -211,8 +202,8 @@ class Pupitre(CommonModel):
     objects = PupitreManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('pupitre', 'pupitres', 1)
-        verbose_name_plural = ungettext_lazy('pupitre', 'pupitres', 2)
+        verbose_name = _('pupitre')
+        verbose_name_plural = _('pupitres')
         ordering = ('-soliste', 'partie')
 
     @staticmethod
@@ -228,7 +219,7 @@ class Pupitre(CommonModel):
             out = ugettext('%s à %s %s') % (
                 apnumber(n_min), apnumber(n_max), partie)
         elif n_min > 1:
-            out = '%s %s' % (apnumber(n_min), partie)
+            out = f'{apnumber(n_min)} {partie}'
         else:
             out = partie
         if self.facultatif:
@@ -244,7 +235,7 @@ class Pupitre(CommonModel):
     def related_label(self):
         out = force_text(self)
         if self.partie.oeuvre is not None:
-            out += ' (' + force_text(self.partie.oeuvre) + ')'
+            out += f' ({self.partie.oeuvre})'
         return out
 
     @staticmethod
@@ -258,10 +249,8 @@ class Pupitre(CommonModel):
 class TypeDeParenteDOeuvres(TypeDeParente):
     class Meta(object):
         unique_together = ('nom', 'nom_relatif')
-        verbose_name = ungettext_lazy('type de parenté d’œuvres',
-                                      'types de parenté d’œuvres', 1)
-        verbose_name_plural = ungettext_lazy('type de parenté d’œuvres',
-                                             'types de parentés d’œuvres', 2)
+        verbose_name = _('type de parenté d’œuvres')
+        verbose_name_plural = _('types de parentés d’œuvres')
         ordering = ('classement',)
         # app_label = 'libretto'
 
@@ -286,22 +275,21 @@ class ParenteDOeuvresManager(CommonManager):
             'fille__creation_heure_approx', 'fille__creation_lieu_approx')
 
 
-@python_2_unicode_compatible
 class ParenteDOeuvres(CommonModel):
     type = ForeignKey('TypeDeParenteDOeuvres', related_name='parentes',
                       verbose_name=_('type'), on_delete=PROTECT)
     mere = ForeignKey(
-        'Oeuvre', related_name='parentes_filles', verbose_name=_('œuvre mère'))
+        'Oeuvre', related_name='parentes_filles', verbose_name=_('œuvre mère'),
+        on_delete=CASCADE)
     fille = ForeignKey(
-        'Oeuvre', related_name='parentes_meres', verbose_name=_('œuvre fille'))
+        'Oeuvre', related_name='parentes_meres', verbose_name=_('œuvre fille'),
+        on_delete=CASCADE)
 
     objects = ParenteDOeuvresManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('parenté d’œuvres',
-                                      'parentés d’œuvres', 1)
-        verbose_name_plural = ungettext_lazy('parenté d’œuvres',
-                                             'parentés d’œuvres', 2)
+        verbose_name = _('parenté d’œuvres')
+        verbose_name_plural = _('parentés d’œuvres')
         ordering = ('type',)
         unique_together = ('type', 'mere', 'fille',)
 
@@ -312,7 +300,7 @@ class ParenteDOeuvres(CommonModel):
         return ()
 
     def __str__(self):
-        return '%s %s %s' % (self.fille, self.type.nom, self.mere)
+        return f'{self.fille} {self.type.nom} {self.mere}'
 
     def clean(self):
         try:
@@ -392,16 +380,15 @@ class AuteurManager(CommonManager):
         return self.get_queryset().html(tags)
 
 
-@python_2_unicode_compatible
 class Auteur(CommonModel):
     # Une contrainte de base de données existe dans les migrations
     # pour éviter que les deux soient remplis.
     oeuvre = ForeignKey(
         'Oeuvre', null=True, blank=True,
-        related_name='auteurs', verbose_name=_('œuvre'))
+        related_name='auteurs', verbose_name=_('œuvre'), on_delete=CASCADE)
     source = ForeignKey(
         'Source', null=True, blank=True,
-        related_name='auteurs', verbose_name=_('source'))
+        related_name='auteurs', verbose_name=_('source'), on_delete=CASCADE)
     # Une contrainte de base de données existe dans les migrations
     # pour éviter que les deux soient remplis.
     individu = ForeignKey(
@@ -416,8 +403,8 @@ class Auteur(CommonModel):
     objects = AuteurManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('auteur', 'auteurs', 1)
-        verbose_name_plural = ungettext_lazy('auteur', 'auteurs', 2)
+        verbose_name = _('auteur')
+        verbose_name_plural = _('auteurs')
         ordering = ('profession', 'ensemble', 'individu')
 
     @staticmethod
@@ -577,8 +564,7 @@ TONALITE_I18N_CHOICES = (
 )
 
 
-@python_2_unicode_compatible
-class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
+class Oeuvre(TreeModelMixin, AutoriteModel, UniqueSlugModel):
     prefixe_titre = CharField(_('article'), max_length=20, blank=True)
     titre = CharField(_('titre'), max_length=200, blank=True, db_index=True)
     coordination = CharField(_('coordination'), max_length=20, blank=True,
@@ -628,7 +614,7 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
     ALTERATIONS = ALTERATIONS
     GAMMES = GAMMES
     TONALITES = [
-        (gamme_k + note_k + alter_k,
+        (f'{gamme_k}{note_k}{alter_k}',
          _(str_list((note_v, alter_v, gamme_v), ' ')))
         for gamme_k, gamme_v in GAMMES.items()
         for note_k, note_v in NOTES.items()
@@ -683,9 +669,15 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
     creation_type = PositiveSmallIntegerField(
         _('type de création'), choices=CREATION_TYPES, null=True, blank=True)
     creation = AncrageSpatioTemporel(verbose_name=_('création'))
-    extrait_de = TreeForeignKey(
-        'self', null=True, blank=True,
-        related_name='enfants', verbose_name=_('extrait de'))
+    ORDERING = ('type_extrait', 'numero_extrait', 'titre',
+                'genre', 'numero', 'coupe',
+                'incipit', 'tempo', 'tonalite', 'sujet', 'arrangement',
+                'surnom', 'nom_courant',
+                'opus', 'ict')
+    extrait_de = ForeignKey(
+        'self', null=True, blank=True, related_name='enfants',
+        verbose_name=_('extrait de'), on_delete=CASCADE)
+    path = PathField(order_by=ORDERING, db_index=True)
     ACTE = 1
     TABLEAU = 2
     SCENE = 3
@@ -736,13 +728,9 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
     objects = OeuvreManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('œuvre', 'œuvres', 1)
-        verbose_name_plural = ungettext_lazy('œuvre', 'œuvres', 2)
-        ordering = ('type_extrait', 'numero_extrait', 'titre',
-                    'genre', 'numero', 'coupe',
-                    'incipit', 'tempo', 'tonalite', 'sujet', 'arrangement',
-                    'surnom', 'nom_courant',
-                    'opus', 'ict')
+        verbose_name = _('œuvre')
+        verbose_name_plural = _('œuvres')
+        ordering = ('path',)
         permissions = (('can_change_status', _('Peut changer l’état')),)
 
     @staticmethod
@@ -751,15 +739,6 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
         if all_relations:
             relations += ('dossiers', 'filles',)
         return relations
-
-    class MPTTMeta(object):
-        parent_attr = 'extrait_de'
-    # FIXME: On ne peut ordonner par type d’extrait, genre ou arrangement
-    #        à cause d’un bug dans MPTT. Corriger cela lors du passage
-    #        à django-treebeard ou autre solution d’arborescence.
-    MPTTMeta.order_insertion_by = [k for k in Meta.ordering
-                                   if k not in ('type_extrait', 'genre',
-                                                'arrangement')]
 
     @permalink
     def get_absolute_url(self):
@@ -785,13 +764,13 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
         digits, suffix = match.groups()
         if self.type_extrait in self.TYPES_EXTRAIT_ROMAINS:
             digits = to_roman(int(digits))
-        out = digits + suffix
+        out = f'{digits}{suffix}'
         if self.type_extrait == self.MORCEAU:
             out = ugettext('№ ') + out
         elif self.type_extrait in (self.MOUVEMENT, self.PIECE):
             out += '.'
         elif show_type:
-            return self.get_type_extrait_display() + ' ' + out
+            return f'{self.get_type_extrait_display()} {out}'
         return out
 
     def caracteristiques_iterator(self, tags=False):
@@ -817,9 +796,9 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
         if self.sujet:
             yield hlp(ugettext('sur %s') % self.sujet, ugettext('sujet'), tags)
         if self.arrangement is not None:
-            yield '(' + self.get_arrangement_display() + ')'
+            yield f'({self.get_arrangement_display()})'
         if self.surnom:
-            yield hlp('(' + self.surnom + ')', ugettext('surnom'), tags)
+            yield hlp(f'({self.surnom})', ugettext('surnom'), tags)
         if self.nom_courant:
             yield hlp(self.nom_courant, ugettext('nom courant'), tags)
         if self.opus:
@@ -916,8 +895,9 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
         return bool(self.titre)
 
     def get_titre_significatif(self):
-        return (self.prefixe_titre + self.titre + self.coordination
-                + self.prefixe_titre_secondaire + self.titre_secondaire)
+        return (f'{self.prefixe_titre}{self.titre}'
+                f'{self.coordination}'
+                f'{self.prefixe_titre_secondaire}{self.titre_secondaire}')
 
     def has_titre_non_significatif(self):
         return self.tempo or self.genre_id is not None
@@ -969,7 +949,7 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
             extrait = capfirst(self.get_extrait(show_type=show_type_extrait))
             if extrait:
                 if titre_complet:
-                    titre_complet = extrait + ' ' + titre_complet
+                    titre_complet = f'{extrait} {titre_complet}'
                 elif self.type_extrait not in self.TYPES_EXTRAIT_CACHES:
                     titre_complet = extrait
             url = None if not tags else self.get_absolute_url()
@@ -1005,18 +985,18 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
         match = re.match(r'^,\s*(.+)$', self.coordination)
         v = self.coordination if match is None else match.group(1)
         if v:
-            self.coordination = ', %s' % v
+            self.coordination = f', {v}'
         for attr in ('prefixe_titre', 'prefixe_titre_secondaire',
                      'coordination'):
             v = getattr(self, attr)
             if v and v[-1] not in (' ', "'", '’'):
-                setattr(self, attr, v + ' ')
+                setattr(self, attr, f'{v} ')
 
     def related_label(self):
         txt = force_text(self)
         auteurs = self.auteurs.html(tags=False)
         if auteurs:
-            txt += ' (' + auteurs + ')'
+            txt += f' ({auteurs})'
         return txt
 
     def __str__(self):
@@ -1037,7 +1017,7 @@ class Oeuvre(MPTTModel, AutoriteModel, UniqueSlugModel):
             'surnom', 'nom_courant', 'incipit',
             'opus', 'ict',
             'pupitres__partie__nom')
-        lookups = [lookup + '__unaccent' for lookup in lookups]
+        lookups = [f'{lookup}__unaccent' for lookup in lookups]
         if add_icontains:
-            return [lookup + '__icontains' for lookup in lookups]
+            return [f'{lookup}__icontains' for lookup in lookups]
         return lookups

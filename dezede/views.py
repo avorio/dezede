@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from collections import OrderedDict
 import json
 
@@ -93,7 +90,8 @@ def autocomplete(request):
             ('id', s.pk),
             ('str', (s.related_label() if hasattr(s, 'related_label')
                      else smart_text(s))),
-            ('url', s.get_absolute_url()))) for s in suggestions]
+            ('url', s.get_absolute_url()))) for s in suggestions
+        if s is not None]
     data = json.dumps(suggestions)
     return HttpResponse(data, content_type='application/json')
 
@@ -103,7 +101,7 @@ class ErrorView(TemplateView):
 
     def render_to_response(self, context, **response_kwargs):
         response_kwargs['status'] = self.status
-        self.template_name = '%s.html' % self.status
+        self.template_name = f'{self.status}.html'
         return super(ErrorView, self).render_to_response(context,
                                                          **response_kwargs)
 

@@ -1,23 +1,19 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
-from django.contrib.gis.db.models import GeometryField, GeoManager
-from django.contrib.gis.db.models.query import GeoQuerySet
+from django.contrib.gis.db.models import GeometryField
 from django.core.exceptions import ValidationError
-from django.core.urlresolvers import reverse
 from django.db.models import (CharField, ForeignKey, BooleanField, DateField,
-                              permalink, Q, PROTECT)
-from django.utils.encoding import python_2_unicode_compatible, force_text
+                              permalink, Q, PROTECT, CASCADE)
+from django.urls import reverse
 from django.utils.html import strip_tags
-from django.utils.translation import (
-    ungettext_lazy, ugettext_lazy as _)
-from mptt.fields import TreeForeignKey
-from mptt.models import MPTTModel
+from django.utils.translation import ugettext_lazy as _
 from tinymce.models import HTMLField
+from tree.fields import PathField
+from tree.models import TreeModelMixin
+
 from .base import (
     CommonModel, AutoriteModel, LOWER_MSG, PLURAL_MSG, PublishedManager,
     DATE_MSG, calc_pluriel, SlugModel, UniqueSlugModel, PublishedQuerySet,
-    CommonTreeQuerySet, CommonTreeManager, CommonQuerySet, CommonManager)
+    CommonTreeQuerySet, CommonTreeManager, CommonQuerySet, CommonManager,
+    slugify_unicode)
 from common.utils.html import href
 from .evenement import Evenement
 from .individu import Individu
@@ -29,7 +25,6 @@ __all__ = (
 )
 
 
-@python_2_unicode_compatible
 class NatureDeLieu(CommonModel, SlugModel):
     nom = CharField(_('nom'), max_length=255, help_text=LOWER_MSG, unique=True,
                     db_index=True)
@@ -45,9 +40,8 @@ class NatureDeLieu(CommonModel, SlugModel):
             '« ville »'))
 
     class Meta(object):
-        verbose_name = ungettext_lazy('nature de lieu', 'natures de lieu', 1)
-        verbose_name_plural = ungettext_lazy('nature de lieu',
-                                             'natures de lieu', 2)
+        verbose_name = _('nature de lieu')
+        verbose_name_plural = _('natures de lieu')
         ordering = ('slug',)
 
     @staticmethod
@@ -68,20 +62,20 @@ class NatureDeLieu(CommonModel, SlugModel):
 
 
 class LieuQuerySet(PublishedQuerySet,
-                   CommonTreeQuerySet, GeoQuerySet):
+                   CommonTreeQuerySet):
     pass
 
 
-class LieuManager(CommonTreeManager, PublishedManager, GeoManager):
+class LieuManager(CommonTreeManager, PublishedManager):
     queryset_class = LieuQuerySet
 
 
-@python_2_unicode_compatible
-class Lieu(MPTTModel, AutoriteModel, UniqueSlugModel):
+class Lieu(TreeModelMixin, AutoriteModel, UniqueSlugModel):
     nom = CharField(_('nom'), max_length=200, db_index=True)
-    parent = TreeForeignKey(
+    parent = ForeignKey(
         'self', null=True, blank=True, related_name='enfants',
-        verbose_name=_('parent'))
+        verbose_name=_('parent'), on_delete=CASCADE)
+    path = PathField(order_by=('nom',), db_index=True)
     nature = ForeignKey(NatureDeLieu, related_name='lieux',
                         verbose_name=_('nature'), on_delete=PROTECT)
     is_institution = BooleanField(_('institution'), default=False)
@@ -93,17 +87,11 @@ class Lieu(MPTTModel, AutoriteModel, UniqueSlugModel):
 
     objects = LieuManager()
 
-    class MPTTMeta(object):
-        order_insertion_by = ('nom',)
-
     class Meta(object):
-        verbose_name = ungettext_lazy('lieu ou institution',
-                                      'lieux et institutions', 1)
-        verbose_name_plural = ungettext_lazy('lieu ou institution',
-                                             'lieux et institutions', 2)
-        ordering = ('nom',)
+        verbose_name = _('lieu ou institution')
+        verbose_name_plural = _('lieux et institutions')
+        ordering = ('path',)
         unique_together = ('nom', 'parent',)
-        index_together = (('tree_id', 'level', 'lft', 'rght'),)
         permissions = (('can_change_status', _('Peut changer l’état')),)
 
     @staticmethod
@@ -132,7 +120,8 @@ class Lieu(MPTTModel, AutoriteModel, UniqueSlugModel):
     link.allow_tags = True
 
     def get_slug(self):
-        return self.nom
+        parent = super(Lieu, self).get_slug()
+        return slugify_unicode(self.nom) or parent
 
     def short_link(self):
         return self.html(short=True)
@@ -194,8 +183,8 @@ class Lieu(MPTTModel, AutoriteModel, UniqueSlugModel):
 class SaisonQuerySet(CommonQuerySet):
     def between_years(self, year0, year1):
         return self.filter(
-            debut__range=('%d-1-1' % year0, '%d-12-31' % year1),
-            fin__range=('%d-1-1' % year0, '%d-12-31' % year1))
+            debut__range=(f'{year0}-1-1', f'{year1}-12-31'),
+            fin__range=(f'{year0}-1-1', f'{year1}-12-31'))
 
     def evenements(self):
         # FIXME: Implémenter ceci de manière plus performante.
@@ -216,38 +205,37 @@ class SaisonManager(CommonManager):
         return self.get_queryset().evenements()
 
 
-@python_2_unicode_compatible
 class Saison(CommonModel):
     ensemble = ForeignKey('Ensemble', related_name='saisons',
-                          verbose_name=_('ensemble'), blank=True, null=True)
+                          verbose_name=_('ensemble'), blank=True, null=True,
+                          on_delete=CASCADE)
     lieu = ForeignKey('Lieu', related_name='saisons', blank=True, null=True,
-                      verbose_name=_('lieu ou institution'))
+                      verbose_name=_('lieu ou institution'), on_delete=CASCADE)
     debut = DateField(_('début'), help_text=DATE_MSG)
     fin = DateField(_('fin'))
 
     objects = SaisonManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('saison', 'saisons', 1)
-        verbose_name_plural = ungettext_lazy('saison', 'saisons', 2)
+        verbose_name = _('saison')
+        verbose_name_plural = _('saisons')
         ordering = ('lieu', 'debut')
 
     def get_periode(self):
         if self.debut.year != self.fin.year:
-            return '%s–%s' % (self.debut.year, self.fin.year)
-        return force_text(self.debut.year)
+            return f'{self.debut.year}–{self.fin.year}'
+        return f'{self.debut.year}'
 
     def __str__(self):
-        return '%s, %s' % (force_text(self.ensemble or self.lieu),
-                           self.get_periode())
+        return f'{self.ensemble or self.lieu}, {self.get_periode()}'
 
     def get_absolute_url(self):
-        q = '?par_saison=True&dates_0=%d&dates_1=%d' % (self.debut.year,
-                                                        self.fin.year)
+        q = (f'?par_saison=True&'
+             f'dates_0={self.debut.year}&dates_1={self.fin.year}')
         if self.lieu_id is not None:
-            q += '&lieu=|%d|' % self.lieu_id
+            q += f'&lieu=|{self.lieu_id}|'
         elif self.ensemble_id is not None:
-            q += '&ensemble=|%d|' % self.ensemble_id
+            q += f'&ensemble=|{self.ensemble_id}|'
         return reverse('evenements') + q
 
     def non_distinct_evenements(self):

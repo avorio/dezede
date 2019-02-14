@@ -1,25 +1,20 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
-import warnings
-
 from django.apps import apps
+from django.core.exceptions import ValidationError
 from django.db import connection
 from django.db.models import (
     CharField, ForeignKey, ManyToManyField, permalink, SmallIntegerField,
-    DateField, PositiveSmallIntegerField, Model)
+    DateField, PositiveSmallIntegerField, Model, BooleanField, CASCADE)
 from django.db.models.sql import EmptyResultSet
 from django.template.defaultfilters import date
-from django.utils.encoding import python_2_unicode_compatible, force_text
+from django.utils.encoding import force_text
 from django.utils.safestring import mark_safe
-from django.utils.translation import (
-    ungettext_lazy, ugettext_lazy as _, ugettext)
+from django.utils.translation import ugettext_lazy as _, ugettext
 from common.utils.abbreviate import abbreviate
 from common.utils.html import capfirst, href, date_html, sc
 from common.utils.sql import get_raw_query
 from common.utils.text import str_list
 from .base import (CommonModel, LOWER_MSG, PLURAL_MSG, calc_pluriel,
-                   UniqueSlugModel, AutoriteModel)
+                   UniqueSlugModel, AutoriteModel, ISNI_VALIDATORS)
 from .evenement import Evenement
 
 
@@ -28,7 +23,6 @@ __all__ = (
 
 
 # TODO: Songer à l’arrivée des Emplois.
-@python_2_unicode_compatible
 class Profession(AutoriteModel, UniqueSlugModel):
     nom = CharField(_('nom'), max_length=200, help_text=LOWER_MSG, unique=True,
                     db_index=True)
@@ -37,13 +31,16 @@ class Profession(AutoriteModel, UniqueSlugModel):
     nom_feminin = CharField(
         _('nom (au féminin)'), max_length=230, blank=True,
         help_text=_('Ne préciser que s’il est différent du nom.'))
-    parent = ForeignKey('self', blank=True, null=True,
-                        related_name='enfants', verbose_name=_('parent'))
+    nom_feminin_pluriel = CharField(
+        _('nom (au féminin pluriel)'), max_length=250, blank=True,
+        help_text=PLURAL_MSG)
+    parent = ForeignKey('self', blank=True, null=True, related_name='enfants',
+                        verbose_name=_('parent'), on_delete=CASCADE)
     classement = SmallIntegerField(_('classement'), default=1, db_index=True)
 
     class Meta(object):
-        verbose_name = ungettext_lazy('profession', 'professions', 1)
-        verbose_name_plural = ungettext_lazy('profession', 'professions', 2)
+        verbose_name = _('profession')
+        verbose_name_plural = _('professions')
         ordering = ('classement', 'nom')
         permissions = (('can_change_status', _('Peut changer l’état')),)
 
@@ -78,16 +75,17 @@ class Profession(AutoriteModel, UniqueSlugModel):
         f = self.nom_feminin
         return f or self.nom
 
+    def feminin_pluriel(self):
+        if self.nom_feminin:
+            return calc_pluriel(self, attr_base='nom_feminin')
+        return self.pluriel()
+
     def html(self, tags=True, short=False, caps=False, feminin=False,
              pluriel=False):
         if pluriel:
-            nom = self.pluriel()
-            if feminin:
-                warnings.warn("Pas de feminin pluriel pour l'instant")
-        elif feminin:
-            nom = self.feminin()
+            nom = self.feminin_pluriel() if feminin else self.pluriel()
         else:
-            nom = self.nom
+            nom = self.feminin() if feminin else self.nom
         if caps:
             nom = capfirst(nom)
         if short:
@@ -118,9 +116,16 @@ class Profession(AutoriteModel, UniqueSlugModel):
     def is_leaf_node(self):
         return not self.enfants.exists()
 
+    def related_label(self):
+        if self.nom_feminin:
+            return f'{self.nom} / {self.nom_feminin}'
+        return self.nom
+
     @staticmethod
     def autocomplete_search_fields():
-        return 'nom__unaccent__icontains', 'nom_pluriel__unaccent__icontains',
+        return ('nom__unaccent__icontains', 'nom_pluriel__unaccent__icontains',
+                'nom_feminin__unaccent__icontains',
+                'nom_feminin_pluriel__unaccent__icontains')
 
 
 class PeriodeDActivite(Model):
@@ -197,18 +202,17 @@ def limit_choices_to_instruments():
     return {'type': apps.get_model('libretto', 'Partie').INSTRUMENT}
 
 
-@python_2_unicode_compatible
 class Membre(CommonModel, PeriodeDActivite):
     ensemble = ForeignKey('Ensemble', related_name='membres',
-                          verbose_name=_('ensemble'))
+                          verbose_name=_('ensemble'), on_delete=CASCADE)
     # TODO: Ajouter nombre pour les membres d'orchestre pouvant être saisi
     #       au lieu d'un individu.
     individu = ForeignKey('Individu', related_name='membres',
-                          verbose_name=_('individu'))
+                          verbose_name=_('individu'), on_delete=CASCADE)
     instrument = ForeignKey(
         'Partie', blank=True, null=True, related_name='membres',
         limit_choices_to=limit_choices_to_instruments,
-        verbose_name=_('instrument'))
+        verbose_name=_('instrument'), on_delete=CASCADE)
     classement = SmallIntegerField(_('classement'), default=1)
 
     class Meta(object):
@@ -216,13 +220,17 @@ class Membre(CommonModel, PeriodeDActivite):
         verbose_name_plural = _('membres')
         ordering = ('instrument', 'classement', 'debut')
 
-    def html(self, tags=True):
-        l = [self.individu.html(tags=tags)]
+    def html(self, to_individus=True, tags=True):
+        l = [(self.individu if to_individus
+              else self.ensemble).html(tags=tags)]
         if self.instrument:
-            l.append('[%s]' % self.instrument.html(tags=tags))
+            l.append(f'[{self.instrument.html(tags=tags)}]')
         if self.debut or self.fin:
-            l.append('(%s)' % self.smart_period(tags=tags))
+            l.append(f'({self.smart_period(tags=tags)})')
         return mark_safe(' '.join(l))
+
+    def ensemble_html(self, tags=True):
+        return self.html(to_individus=False, tags=tags)
 
     def __str__(self):
         return self.html(tags=False)
@@ -231,18 +239,16 @@ class Membre(CommonModel, PeriodeDActivite):
         return self.html()
 
 
-@python_2_unicode_compatible
 class TypeDEnsemble(CommonModel):
-    nom = CharField(_('nom'), max_length=30, help_text=LOWER_MSG)
-    nom_pluriel = CharField(_('nom pluriel'), max_length=30, blank=True,
+    nom = CharField(_('nom'), max_length=40, help_text=LOWER_MSG)
+    nom_pluriel = CharField(_('nom pluriel'), max_length=45, blank=True,
                             help_text=PLURAL_MSG)
-    parent = ForeignKey('self', null=True, blank=True,
-                        related_name='enfants', verbose_name=_('parent'))
+    parent = ForeignKey('self', null=True, blank=True, related_name='enfants',
+                        verbose_name=_('parent'), on_delete=CASCADE)
 
     class Meta(object):
-        verbose_name = ungettext_lazy('type d’ensemble', 'types d’ensemble', 1)
-        verbose_name_plural = ungettext_lazy('type d’ensemble',
-                                             'types d’ensemble', 2)
+        verbose_name = _('type d’ensemble')
+        verbose_name_plural = _('types d’ensemble')
         ordering = ('nom',)
 
     def __str__(self):
@@ -253,32 +259,40 @@ class TypeDEnsemble(CommonModel):
         return 'nom__unaccent__icontains', 'nom_pluriel__unaccent__icontains'
 
 
-@python_2_unicode_compatible
 class Ensemble(AutoriteModel, PeriodeDActivite, UniqueSlugModel):
     particule_nom = CharField(
         _('particule du nom'), max_length=5, blank=True, db_index=True)
     nom = CharField(_('nom'), max_length=75, db_index=True)
     # FIXME: retirer null=True quand la base sera nettoyée.
     type = ForeignKey('TypeDEnsemble', null=True, related_name='ensembles',
-                      verbose_name=_('type'))
+                      verbose_name=_('type'), on_delete=CASCADE)
     # TODO: Permettre deux villes sièges.
     siege = ForeignKey('Lieu', null=True, blank=True,
                        related_name='ensembles',
-                       verbose_name=_('localisation'))
+                       verbose_name=_('localisation'), on_delete=CASCADE)
     # TODO: Ajouter historique d'ensemble.
 
     individus = ManyToManyField(
         'Individu', through=Membre, related_name='ensembles',
         verbose_name=_('individus'))
 
+    isni = CharField(
+        _('Identifiant ISNI'), max_length=16, blank=True,
+        validators=ISNI_VALIDATORS,
+        help_text=_('Exemple : « 0000000115201575 » '
+                    'pour Le Poème Harmonique.'))
+    sans_isni = BooleanField(_('sans ISNI'), default=False)
+
     class Meta(object):
         ordering = ('nom',)
+        verbose_name = _('ensemble')
+        verbose_name_plural = _('ensembles')
 
     def __str__(self):
         return self.html(tags=False)
 
     def nom_complet(self):
-        return ('%s %s' % (self.particule_nom, self.nom)).strip()
+        return f'{self.particule_nom} {self.nom}'.strip()
 
     def html(self, tags=True):
         nom = self.nom_complet()
@@ -331,30 +345,27 @@ class Ensemble(AutoriteModel, PeriodeDActivite, UniqueSlugModel):
                 evenements_qs.order_by().values('pk', 'debut_lieu_id'))
         except EmptyResultSet:
             return ()
-        sql = """
+        sql = f"""
         WITH evenements AS (
-            %s
+            {evenements_sql}
         )
         (
-            SELECT %%s, COUNT(id) FROM evenements
+            SELECT %s, COUNT(id) FROM evenements
         ) UNION ALL (
             SELECT ancetre.nom, COUNT(evenement.id)
             FROM libretto_lieu AS ancetre
             INNER JOIN libretto_lieu AS lieu ON (
-                lieu.tree_id = ancetre.tree_id
-                AND lieu.lft BETWEEN ancetre.lft AND ancetre.rght)
+                lieu.path LIKE ancetre.path || '%%')
             INNER JOIN evenements AS evenement ON (
                 evenement.debut_lieu_id = lieu.id)
-            WHERE (
-                ancetre.tree_id = %%s
-                AND %%s BETWEEN ancetre.lft AND ancetre.rght)
+            WHERE %s LIKE ancetre.path || '%%'
             GROUP BY ancetre.id
-            ORDER BY ancetre.level
+            ORDER BY length(ancetre.path)
         );
-        """ % evenements_sql
+        """
         with connection.cursor() as cursor:
             cursor.execute(sql, evenements_params + (
-                ugettext('Monde'), self.siege.tree_id, self.siege.lft))
+                ugettext('Monde'), self.siege.path))
             data = cursor.fetchall()
         new_data = []
         for i, (name, count) in enumerate(data):
@@ -365,6 +376,12 @@ class Ensemble(AutoriteModel, PeriodeDActivite, UniqueSlugModel):
             if exclusive_count > 0:
                 new_data.append((name, count, exclusive_count))
         return new_data
+
+    def clean(self):
+        if self.isni and self.sans_isni:
+            message = _('« ISNI » ne peut être rempli '
+                        'lorsque « Sans ISNI » est coché.')
+            raise ValidationError({'isni': message, 'sans_isni': message})
 
     @staticmethod
     def invalidated_relations_when_saved(all_relations=False):

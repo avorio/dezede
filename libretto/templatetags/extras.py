@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals, division
 try:
     from html.parser import HTMLParser
 except ImportError:  # Python 2 compatibility
@@ -95,7 +92,7 @@ def html_to_latex(html):
     return mark_safe(smart_text(soup.get_text()))
 
 
-@register.assignment_tag(takes_context=True)
+@register.simple_tag(takes_context=True)
 def get_prev_event_counter(context, source, event_counter):
     if 'source_dict' not in context:
         context['source_dict'] = {}
@@ -126,20 +123,18 @@ def get_data(evenements_qs, min_places, bbox):
         valid_ancestors = valid_ancestors.filter(geometry__contained=bbox)
 
     valid_ancestors_query, valid_ancestors_params = get_raw_query(
-        valid_ancestors.values('id', 'tree_id', 'level', 'lft', 'rght'))
+        valid_ancestors.values('id', 'path'))
 
     evenements_query, params = get_raw_query(
         evenements_qs.values('debut_lieu_id'))
 
     cursor.execute("""
-    SELECT ancetre.level, COUNT(DISTINCT ancetre.id)
+    SELECT length(ancetre.path) / 4, COUNT(DISTINCT ancetre.id)
     FROM libretto_lieu AS lieu
-    INNER JOIN (%s) AS ancetre ON (
-        ancetre.tree_id = lieu.tree_id
-        AND lieu.lft BETWEEN ancetre.lft AND ancetre.rght)
+    INNER JOIN (%s) AS ancetre ON lieu.path LIKE ancetre.path || '%%%%'
     WHERE lieu.id IN (%s)
-    GROUP BY ancetre.level
-    ORDER BY ancetre.level ASC;
+    GROUP BY length(ancetre.path)
+    ORDER BY length(ancetre.path) ASC;
     """ % (valid_ancestors_query, evenements_query),
         valid_ancestors_params + params)
 
@@ -160,7 +155,7 @@ def get_data(evenements_qs, min_places, bbox):
     if bbox is None:
         bbox_where = ''
     else:
-        bbox_where = 'ancetre.geometry @ ST_GeomFromEWKB(%s::bytea) AND '
+        bbox_where = 'geometry @ ST_GeomFromEWKB(%s::bytea) AND '
         params.append(bbox.ewkb)
 
     params.append(level)
@@ -169,25 +164,23 @@ def get_data(evenements_qs, min_places, bbox):
     SELECT ancetre.id, ancetre.nom, ancetre.geometry, COUNT(evenement.id) AS n
     FROM (%s) AS evenement
     INNER JOIN libretto_lieu AS lieu ON lieu.id = evenement.debut_lieu_id
-    INNER JOIN libretto_lieu AS ancetre ON (
-        %s
-        ancetre.id = (
-            SELECT ancetre.id
-            FROM libretto_lieu AS ancetre
-            WHERE (
-                geometry IS NOT NULL
-                AND ancetre.tree_id = lieu.tree_id
-                AND lieu.lft BETWEEN ancetre.lft AND ancetre.rght
-                AND level <= %%s)
-            ORDER BY level DESC
-            LIMIT 1))
+    INNER JOIN (
+        SELECT *
+        FROM libretto_lieu
+        WHERE (
+            %s
+            geometry IS NOT NULL
+            AND length(path) / 4 <= %%s
+        )
+        ORDER BY length(path) DESC
+    ) AS ancetre ON lieu.path LIKE ancetre.path || '%%%%'
     GROUP BY ancetre.id, ancetre.nom, ancetre.geometry
     ORDER BY n DESC;
     """ % (evenements_query, bbox_where), params)
     return cursor.fetchall()
 
 
-@register.assignment_tag
+@register.simple_tag
 def get_map_data(evenement_qs, min_places, bbox):
     try:
         return [(pk, nom, GEOSGeometry(geometry), n)

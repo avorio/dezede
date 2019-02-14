@@ -1,14 +1,10 @@
-# coding: utf-8
-
-from __future__ import unicode_literals, division
 from decimal import Decimal
 
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import (
     CharField, ImageField, DecimalField, BooleanField, ForeignKey,
-    PositiveIntegerField, PositiveSmallIntegerField, Max)
-from django.utils.encoding import python_2_unicode_compatible
+    PositiveIntegerField, PositiveSmallIntegerField, Max, CASCADE)
 from django.utils.translation import ugettext_lazy as _
 from easy_thumbnails.files import get_thumbnailer
 from image_cropping import ImageRatioField
@@ -23,7 +19,6 @@ def get_default_position():
     return max_pos + 1
 
 
-@python_2_unicode_compatible
 class Diapositive(PublishedModel):
     # TODO: Pouvoir paramétrer :
     #       couleur de fond, placement vertical, largeur du texte.
@@ -34,7 +29,7 @@ class Diapositive(PublishedModel):
     content_type = ForeignKey(
         ContentType, limit_choices_to={
             'model__in': _get_valid_modelnames_func(autorites_only=False)},
-        verbose_name=_('type d’objet lié'))
+        verbose_name=_('type d’objet lié'), on_delete=CASCADE)
     object_id = PositiveIntegerField(_('identifiant de l’objet lié'))
     content_object = GenericForeignKey()
     content_object.short_description = _('objet lié')
@@ -134,7 +129,7 @@ class Diapositive(PublishedModel):
             'size': (150, 150),
             'box': self.cropping,
         }).url
-        return '<img src="%s" style="width: %s; height: %s;" />' \
-               % (thumbnail_url, width, height)
+        return (f'<img src="{thumbnail_url}" '
+                f'style="width: {width}; height: {height};" />')
     thumbnail.short_description = _('miniature')
     thumbnail.allow_tags = True

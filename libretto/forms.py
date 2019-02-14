@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from ajax_select.fields import AutoCompleteSelectMultipleField, \
     AutoCompleteWidget
 from crispy_forms.helper import FormHelper
@@ -8,8 +5,7 @@ from crispy_forms.layout import Layout, Submit, Field, HTML
 from datetime import timedelta
 from django.db.models import Q
 from django.forms import (
-    ValidationError, ModelForm, Form, CharField, TextInput,
-    BooleanField)
+    ValidationError, ModelForm, Form, CharField, TextInput, BooleanField)
 from django.utils.translation import ugettext_lazy as _
 from common.utils.text import capfirst, str_list_w_last
 from .models import (
@@ -113,10 +109,18 @@ class PartieForm(ConstrainedModelForm):
     def clean(self):
         data = super(PartieForm, self).clean()
 
-        if data.get('oeuvre') and data.get('type') == Partie.INSTRUMENT:
+        type = data.get('type')
+
+        if data.get('oeuvre') and type == Partie.INSTRUMENT:
             self.add_error(
                 'oeuvre',
                 _('« Œuvre » ne peut être saisi que pour les rôles.'))
+
+        if data.get('professions') and type == Partie.ROLE:
+            self.add_error(
+                'professions',
+                _('« Professions » ne peut être saisi '
+                  'que pour les instruments.'))
 
         return data
 
@@ -242,16 +246,6 @@ class ElementDeProgrammeForm(ConstrainedModelForm):
         #                                  attrs={'style': 'width: 600px;'}),
         # }
 
-    def clean(self):
-        data = super(ElementDeProgrammeForm, self).clean()
-
-        if not (data.get('autre') or data.get('oeuvre')
-                or data.get('distribution')):
-            raise ValidationError(_('Vous devez remplir au moins « Œuvre », '
-                                    '« Autre » ou « Distribution ».'))
-
-        return data
-
 
 class SourceForm(ConstrainedModelForm):
     REQUIRED_BY = (
@@ -264,10 +258,12 @@ class SourceForm(ConstrainedModelForm):
         exclude = ()
         widgets = {
             'titre': AutoCompleteWidget('source__titre',
-                                         attrs={'style': 'width: 600px;'}),
+                                        attrs={'style': 'width: 600px;'}),
             'numero': TextInput(attrs={'cols': 10}),
             'folio': TextInput(attrs={'cols': 10}),
             'page': TextInput(attrs={'cols': 10}),
+            'lieu_conservation': AutoCompleteWidget(
+                'source__lieu_conservation', attrs={'style': 'width: 600px;'}),
         }
 
     def clean(self):

@@ -1,9 +1,9 @@
 from bs4 import BeautifulSoup
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.core.urlresolvers import reverse
 from django.test import TestCase
 from django.test.utils import override_settings
+from django.urls import reverse
 from django.utils import six
 
 
@@ -73,17 +73,17 @@ class CommonTestCase(TestCase):
             return
 
         model_name = self.model_name
-        self.assertURL(reverse('admin:libretto_%s_changelist' % model_name))
-        add_url = reverse('admin:libretto_%s_add' % model_name)
+        self.assertURL(reverse(f'admin:libretto_{model_name}_changelist'))
+        add_url = reverse(f'admin:libretto_{model_name}_add')
         self.assertURL(add_url)
         self.assertSendForm(add_url)
         for obj in self.model.objects.all():
             self.assertURL(reverse(
-                'admin:libretto_%s_history' % model_name, args=[obj.pk]))
+                f'admin:libretto_{model_name}_history', args=[obj.pk]))
             self.assertURL(reverse(
-                'admin:libretto_%s_delete' % model_name, args=[obj.pk]))
+                f'admin:libretto_{model_name}_delete', args=[obj.pk]))
             change_url = reverse(
-                'admin:libretto_%s_change' % model_name, args=[obj.pk])
+                f'admin:libretto_{model_name}_change', args=[obj.pk])
             self.assertURL(change_url)
             self.assertSendForm(change_url)
 

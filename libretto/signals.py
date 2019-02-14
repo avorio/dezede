@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.apps import apps
 from django.db import connection
 from django.db.models.signals import post_save, pre_delete
@@ -67,12 +64,8 @@ class AutoInvalidatorSignalProcessor(BaseSignalProcessor):
         return self.enqueue('delete', instance, sender, **kwargs)
 
     def enqueue(self, action, instance, sender, **kwargs):
-        # TODO: Replace the two following lines with `sender._meta.label`
-        #       when switching to Django 1.9
-        meta = sender._meta
-        sender_label = '%s.%s' % (meta.app_label, meta.object_name)
-        if sender_label in ('admin.LogEntry', 'sessions.Session',
-                            'reversion.Revision', 'reversion.Version'):
+        if sender._meta.label in ('admin.LogEntry', 'sessions.Session',
+                                  'reversion.Revision', 'reversion.Version'):
             return
 
         django_rq.enqueue(

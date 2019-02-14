@@ -1,14 +1,12 @@
-# coding: utf-8
-
 from .base import *
 
-TEMPLATE_LOADERS = (
-    ('django.template.loaders.cached.Loader', (
-        'django.template.loaders.filesystem.Loader',
-        'django.template.loaders.app_directories.Loader',
-        # 'django.template.loaders.eggs.Loader',
-    )),
-)
+TEMPLATES[0]['OPTIONS']['loaders'] = [
+   ('django.template.loaders.cached.Loader', [
+       'django.template.loaders.filesystem.Loader',
+       'django.template.loaders.app_directories.Loader',
+   ]),
+]
+del TEMPLATES[0]['APP_DIRS']
 
 ALLOWED_HOSTS = ('dezede.org',)
 

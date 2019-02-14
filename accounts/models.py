@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.apps import apps
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -8,19 +5,17 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.validators import MaxLengthValidator
 from django.db.models import (
     BooleanField, permalink, TextField, URLField,
-    CharField, ForeignKey, PositiveIntegerField, ImageField)
+    CharField, ForeignKey, PositiveIntegerField, ImageField, CASCADE)
 from django.db.models.signals import class_prepared
 from django.dispatch import receiver
-from django.utils.encoding import python_2_unicode_compatible
-from django.utils.translation import ungettext_lazy, ugettext_lazy as _
-from mptt.fields import TreeForeignKey
-from mptt.models import MPTTModel
-from mptt.utils import _get_tree_model
+from django.utils.translation import ugettext_lazy as _
+from tree.fields import PathField
+from tree.models import TreeModelMixin
 
 from common.utils.html import href, sc
 from common.utils.text import str_list_w_last
 from libretto.models.base import (
-    AutoriteModel, CommonTreeManager, CommonTreeQuerySet, CommonManager,
+    AutoriteModel, CommonTreeManager, CommonTreeQuerySet,
 )
 
 
@@ -54,19 +49,6 @@ class HierarchicUserQuerySet(CommonTreeQuerySet):
 
 class HierarchicUserManager(CommonTreeManager, UserManager):
     queryset_class = HierarchicUserQuerySet
-    use_in_migrations = False
-
-    # FIXME: This is a workaround to https://github.com/django-mptt/django-mptt/issues/382
-    #        Remove when fixed upstream.
-    def contribute_to_class(self, model, name):
-        CommonManager.contribute_to_class(self, model, name)
-
-        if not model._meta.abstract:
-            self.tree_model = _get_tree_model(model)
-
-            self._base_manager = None
-            if self.tree_model is not None and self.tree_model is not model:
-                self._base_manager = self.tree_model._tree_manager
 
     def html(self, tags=True):
         return self.get_queryset().html(tags=tags)
@@ -79,14 +61,15 @@ def _get_valid_modelnames_func(autorites_only=True):
             return b and AutoriteModel in model.__bases__
         return b
 
-    def get_valid_modelnames():
-        models = frozenset(apps.get_models())
-        return [model.__name__.lower() for model in models if is_valid(model)]
-    return get_valid_modelnames
+    class ValidModelNames:
+        def __iter__(self):
+            models = frozenset(apps.get_models())
+            yield from [model.__name__.lower() for model in models if
+                        is_valid(model)]
+    return ValidModelNames()
 
 
-@python_2_unicode_compatible
-class HierarchicUser(MPTTModel, AbstractUser):
+class HierarchicUser(TreeModelMixin, AbstractUser):
     show_email = BooleanField(_('afficher l’email'), default=False)
     website = URLField(_('site internet'), blank=True)
     website_verbose = CharField(
@@ -98,15 +81,18 @@ class HierarchicUser(MPTTModel, AbstractUser):
     content_type = ForeignKey(
         ContentType, blank=True, null=True,
         limit_choices_to={'model__in': _get_valid_modelnames_func()},
-        verbose_name=_('type d’autorité associée'))
+        verbose_name=_('type d’autorité associée'), on_delete=CASCADE)
     object_id = PositiveIntegerField(_('identifiant de l’autorité associée'),
                                      blank=True, null=True)
     content_object = GenericForeignKey()
 
-    mentor = TreeForeignKey(
+    mentor = ForeignKey(
         'self', null=True, blank=True, related_name='disciples',
         verbose_name=_('responsable scientifique'),
-        limit_choices_to={'willing_to_be_mentor__exact': True})
+        limit_choices_to={'willing_to_be_mentor__exact': True},
+        on_delete=CASCADE)
+    path = PathField(order_by=('last_name', 'first_name', 'username'),
+                     db_index=True)
     willing_to_be_mentor = BooleanField(
         _('Veut être responsable scientifique'), default=False)
 
@@ -121,20 +107,16 @@ class HierarchicUser(MPTTModel, AbstractUser):
 
     objects = HierarchicUserManager()
 
-    class MPTTMeta(object):
-        parent_attr = 'mentor'
-        order_insertion_by = ('last_name', 'first_name', 'username')
-
     class Meta(object):
         ordering = ('last_name', 'first_name')
-        verbose_name = ungettext_lazy('utilisateur', 'utilisateurs', 1)
-        verbose_name_plural = ungettext_lazy('utilisateur', 'utilisateurs', 2)
+        verbose_name = _('utilisateur')
+        verbose_name_plural = _('utilisateurs')
 
     def __str__(self, tags=False):
         return self.html(tags=False)
 
     def get_full_name(self, tags=False):
-        full_name = '%s %s' % (self.first_name, sc(self.last_name, tags=tags))
+        full_name = f'{self.first_name} {sc(self.last_name, tags=tags)}'
         return full_name.strip()
 
     def html(self, tags=True):
@@ -153,7 +135,7 @@ class HierarchicUser(MPTTModel, AbstractUser):
                     new_tab=True)
 
     def email_link(self):
-        return href('mailto:' + self.email, self.email)
+        return href(f'mailto:{self.email}', self.email)
 
     def dossiers_edites(self):
         return apps.get_model('dossiers.DossierDEvenements').objects.filter(

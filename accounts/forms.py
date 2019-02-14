@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from crispy_forms.bootstrap import PrependedText, FormActions
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Submit, Field, Reset, Fieldset, HTML
@@ -12,7 +9,7 @@ from django.forms import (
 from django.forms.widgets import CheckboxSelectMultiple, HiddenInput
 from django.template.loader import render_to_string
 from django.utils.translation import ugettext_lazy as _
-from mptt.forms import TreeNodeChoiceField
+from tree.forms import TreeChoiceField
 
 
 def get_mentors():
@@ -26,8 +23,7 @@ def get_groups():
 class HierarchicUserSignupForm(Form):
     first_name = CharField(label=_('Prénom(s)'))
     last_name = CharField(label=_('Nom'))
-    mentor = TreeNodeChoiceField(queryset=get_mentors(),
-                                 label=_('Responsable'))
+    mentor = TreeChoiceField(queryset=get_mentors(), label=_('Responsable'))
     willing_to_be_mentor = BooleanField(
         required=False, label=_('Souhaite devenir responsable scientifique'))
     groups = ModelMultipleChoiceField(
@@ -58,7 +54,7 @@ class HierarchicUserSignupForm(Form):
             FormActions(
                 Submit('save_changes', _('Enregistrer')),
                 Reset('reset', _('Réinitialiser'), css_class='btn-default'),
-                css_class='col-sm-offset-2',
+                css_class='row',
             ),
         )
         super(HierarchicUserSignupForm, self).__init__(*args, **kwargs)
@@ -96,7 +92,7 @@ class LoginForm(OriginalLoginForm):
                      '<a class="btn btn-link" '
                      'href="{% url "account_reset_password" %}">'
                      '{% trans "Forgot Password?" %}</a>'),
-                css_class='col-sm-offset-2',
+                css_class='row',
             ),
         )
 

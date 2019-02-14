@@ -1,13 +1,10 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.template import Library
 
 
 register = Library()
 
 
-@register.assignment_tag(takes_context=True)
+@register.simple_tag(takes_context=True)
 def get_fieldsets_and_inlines(context):
     adminform = context['adminform']
     model_admin = adminform.model_admin

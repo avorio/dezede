@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals, division
 from django.apps import apps
 from django.conf import settings
 from django.db.models import Q
@@ -11,6 +8,8 @@ from haystack.indexes import (
     SearchIndex, Indexable, CharField, EdgeNgramField, DateField, BooleanField,
     IntegerField)
 from haystack.query import SearchQuerySet
+from tree.models import TreeModelMixin
+
 from typography.utils import replace
 
 
@@ -20,6 +19,8 @@ class CommonSearchIndex(SearchIndex):
     owner_id = IntegerField(model_attr='owner_id', null=True)
     BASE_BOOST = 0.5
     MAXIMUM_BOOST = 5.0
+    BOOST_GROWTH = 100
+    LEVEL_ATTENUATION = 0.1
 
     def prepare(self, obj):
         translation.activate(settings.LANGUAGE_CODE)
@@ -28,16 +29,23 @@ class CommonSearchIndex(SearchIndex):
         # `growth` est le nombre d’objets liés nécessaires pour atteindre
         # les 2/3 de la distance entre `min_boost` et `max_boost`.
         n = obj.get_related_count()
+
+        if isinstance(obj, TreeModelMixin):
+            # Sligthly reduces the number of related objects if highly nested.
+            n /= 1 + (obj.get_level() - 1) * self.LEVEL_ATTENUATION
+
         min_boost, max_boost = self.BASE_BOOST, self.MAXIMUM_BOOST
-        growth = 100
-        prepared_data['boost'] = (
-            min_boost + (max_boost-min_boost) * (1 - 1 / (1 + n / growth)))
+        boost = (
+            min_boost
+            + (max_boost-min_boost) * (1 - 1 / (1 + n / self.BOOST_GROWTH)))
+        prepared_data['boost'] = boost
         return prepared_data
 
 
 class OeuvreIndex(CommonSearchIndex, Indexable):
     content_auto = EdgeNgramField(model_attr='titre_html')
-    BASE_BOOST = 1.5
+    BASE_BOOST = 2.0
+    LEVEL_ATTENUATION = 1
 
     def get_model(self):
         return apps.get_model('libretto.Oeuvre')
@@ -47,11 +55,6 @@ class OeuvreIndex(CommonSearchIndex, Indexable):
         return qs.select_related('genre').prefetch_related(
             'pupitres__partie',
             'auteurs__individu', 'auteurs__ensemble', 'auteurs__profession')
-
-    def prepare(self, obj):
-        prepared_data = super(OeuvreIndex, self).prepare(obj)
-        prepared_data['boost'] /= (obj.level + 1)
-        return prepared_data
 
 
 class SourceIndex(CommonSearchIndex, Indexable):
@@ -64,7 +67,7 @@ class SourceIndex(CommonSearchIndex, Indexable):
 
 class IndividuIndex(CommonSearchIndex, Indexable):
     content_auto = EdgeNgramField(model_attr='related_label')
-    BASE_BOOST = 2.0
+    BASE_BOOST = 3.0
 
     def get_model(self):
         return apps.get_model('libretto.Individu')
@@ -88,7 +91,7 @@ class EnsembleIndex(CommonSearchIndex, Indexable):
 
 class LieuIndex(CommonSearchIndex, Indexable):
     content_auto = EdgeNgramField(model_attr='html')
-    BASE_BOOST = 1.5
+    BASE_BOOST = 2.5
 
     def get_model(self):
         return apps.get_model('libretto.Lieu')
@@ -109,7 +112,6 @@ class EvenementIndex(CommonSearchIndex, Indexable):
 
 class PartieIndex(CommonSearchIndex, Indexable):
     content_auto = EdgeNgramField(model_attr='html')
-    BASE_BOOST = 1.0
 
     def get_model(self):
         return apps.get_model('libretto.Partie')

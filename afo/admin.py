@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.contrib.admin import register
 from reversion.admin import VersionAdmin
 from libretto.admin import CommonAdmin
@@ -31,4 +28,4 @@ class LieuAFOAdmin(VersionAdmin, CommonAdmin):
 
     def get_queryset(self, request):
         qs = super(LieuAFOAdmin, self).get_queryset(request)
-        return qs.select_related('evenement', 'owner')
+        return qs.select_related('lieu', 'owner')

@@ -1,23 +1,18 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from django.core.exceptions import ValidationError
-from django.core.validators import MinLengthValidator, RegexValidator
 from django.db import connection
 from django.db.models import (
-    CharField, ForeignKey, ManyToManyField, permalink, PROTECT)
-from django.utils.encoding import python_2_unicode_compatible, force_text
+    CharField, ForeignKey, ManyToManyField, permalink, PROTECT, BooleanField)
 from django.utils.html import strip_tags
 from django.utils.translation import (
-    pgettext_lazy, ungettext_lazy, ugettext, ugettext_lazy as _)
+    pgettext_lazy, ugettext, ugettext_lazy as _)
 from tinymce.models import HTMLField
-from cache_tools import invalidate_object
 from common.utils.abbreviate import abbreviate
 from common.utils.html import href, sc, hlp
 from common.utils.text import str_list, str_list_w_last, ex
 from .base import (
     CommonModel, AutoriteModel, UniqueSlugModel, TypeDeParente,
-    PublishedManager, PublishedQuerySet, AncrageSpatioTemporel)
+    PublishedManager, PublishedQuerySet, AncrageSpatioTemporel,
+    slugify_unicode, ISNI_VALIDATORS)
 from .evenement import Evenement
 
 
@@ -27,12 +22,8 @@ __all__ = ('TypeDeParenteDIndividus', 'ParenteDIndividus', 'Individu')
 class TypeDeParenteDIndividus(TypeDeParente):
     class Meta(object):
         unique_together = ('nom', 'nom_relatif')
-        verbose_name = ungettext_lazy('type de parenté d’individus',
-                                      'types de parenté d’individus', 1)
-        verbose_name_plural = ungettext_lazy(
-            'type de parenté d’individus',
-            'types de parenté d’individus',
-            2)
+        verbose_name = _('type de parenté d’individus')
+        verbose_name_plural = _('types de parenté d’individus')
         ordering = ('classement',)
 
     @staticmethod
@@ -42,7 +33,6 @@ class TypeDeParenteDIndividus(TypeDeParente):
         return ()
 
 
-@python_2_unicode_compatible
 class ParenteDIndividus(CommonModel):
     type = ForeignKey('TypeDeParenteDIndividus', related_name='parentes',
                       verbose_name=_('type'), on_delete=PROTECT)
@@ -52,10 +42,8 @@ class ParenteDIndividus(CommonModel):
                         verbose_name=_('individu enfant'), on_delete=PROTECT)
 
     class Meta(object):
-        verbose_name = ungettext_lazy('parenté d’individus',
-                                      'parentés d’individus', 1)
-        verbose_name_plural = ungettext_lazy('parenté d’individus',
-                                             'parentés d’individus', 2)
+        verbose_name = _('parenté d’individus')
+        verbose_name_plural = _('parentés d’individus')
         ordering = ('type', 'parent', 'enfant')
 
     @staticmethod
@@ -92,7 +80,6 @@ class IndividuManager(PublishedManager):
         return self.get_queryset().are_feminins()
 
 
-@python_2_unicode_compatible
 class Individu(AutoriteModel, UniqueSlugModel):
     particule_nom = CharField(
         _('particule du nom d’usage'), max_length=10, blank=True,
@@ -145,16 +132,15 @@ class Individu(AutoriteModel, UniqueSlugModel):
 
     isni = CharField(
         _('Identifiant ISNI'), max_length=16, blank=True,
-        validators=[MinLengthValidator(16),
-                    RegexValidator(r'^\d{15}[\dxX]$',
-                                   _('Numéro d’ISNI invalide.'))],
+        validators=ISNI_VALIDATORS,
         help_text=_('Exemple : « 0000000121269154 » pour Mozart.'))
+    sans_isni = BooleanField(_('sans ISNI'), default=False)
 
     objects = IndividuManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('individu', 'individus', 1)
-        verbose_name_plural = ungettext_lazy('individu', 'individus', 2)
+        verbose_name = _('individu')
+        verbose_name_plural = _('individus')
         ordering = ('nom',)
         permissions = (('can_change_status', _('Peut changer l’état')),)
 
@@ -166,8 +152,8 @@ class Individu(AutoriteModel, UniqueSlugModel):
         return relations
 
     def get_slug(self):
-        invalidate_object(self)
-        return self.nom or force_text(self)
+        parent = super(Individu, self).get_slug()
+        return slugify_unicode(self.nom) or parent
 
     @permalink
     def get_absolute_url(self):
@@ -210,6 +196,9 @@ class Individu(AutoriteModel, UniqueSlugModel):
         return Evenement.objects.filter(
             programme__oeuvre__auteurs__individu=self).distinct()
 
+    def membre_de(self):
+        return self.membres.order_by('-debut', 'instrument', 'classement')
+
     def calc_titre(self, tags=False):
         titre = self.titre
         if not titre:
@@ -239,7 +228,7 @@ class Individu(AutoriteModel, UniqueSlugModel):
         particule = (self.particule_nom_naissance if naissance
                      else self.particule_nom)
         if lon and particule and particule[-1] not in "'’":
-            return particule + ' '
+            return f'{particule} '
         return particule
 
     def calc_professions(self, tags=True):
@@ -261,7 +250,7 @@ class Individu(AutoriteModel, UniqueSlugModel):
                    else self.prenoms)
         nom = self.nom
         if lon:
-            nom = self.get_particule() + nom
+            nom = f'{self.get_particule()}{nom}'
         pseudonyme = self.pseudonyme
 
         def standard(main, prenoms):
@@ -280,14 +269,15 @@ class Individu(AutoriteModel, UniqueSlugModel):
                         prenoms = abbreviate(prenoms, tags=tags, enabled=abbr)
                     if particule:
                         particule = sc(particule, tags)
-                    l.append('(%s)' % ('%s %s' % (prenoms, particule)
-                                       if prenoms and particule
-                                       else (prenoms or particule)))
+                    prenom_and_particule = (f'{prenoms} {particule}'
+                                            if prenoms and particule
+                                            else (prenoms or particule))
+                    l.append(f'({prenom_and_particule})')
             out = str_list(l, ' ')
             if pseudonyme:
                 alias = (ugettext('dite') if self.is_feminin()
                          else ugettext('dit'))
-                out += ' %s\u00A0%s' % (alias, pseudonyme)
+                out += f' {alias}\u00A0{pseudonyme}'
             return out
 
         if designation in 'SL':
@@ -299,7 +289,7 @@ class Individu(AutoriteModel, UniqueSlugModel):
         elif designation == 'B':
             nom_naissance = self.nom_naissance
             if lon:
-                nom_naissance = self.get_particule(True) + nom_naissance
+                nom_naissance = f'{self.get_particule(True)}{nom_naissance}'
             main = nom_naissance
 
         main = sc(main, tags)
@@ -330,8 +320,13 @@ class Individu(AutoriteModel, UniqueSlugModel):
         naissance = self.naissance.date
         deces = self.deces.date
         if naissance and deces and deces < naissance:
-            raise ValidationError(_('Le décès ne peut précéder '
-                                    'la naissance.'))
+            message = _('Le décès ne peut précéder la naissance.')
+            raise ValidationError({'naissance_date': message,
+                                   'deces_date': message})
+        if self.isni and self.sans_isni:
+            message = _('« ISNI » ne peut être rempli '
+                        'lorsque « Sans ISNI » est coché.')
+            raise ValidationError({'isni': message, 'sans_isni': message})
 
     def __str__(self):
         return strip_tags(self.html(tags=False))

@@ -1,10 +1,7 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from allauth.account.models import EmailConfirmation
 from django.contrib.auth.models import Group, Permission
 from django.core import mail
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from libretto.tests.models.utils import CommonTestCase
 from ..models import HierarchicUser
 

@@ -5,7 +5,7 @@
 {% load i18n static grp_tags %}
 
 {% block title %}
-  {{ title }} | {% filter removetags:'a' %}{% get_site_title %}{% endfilter %}
+  {{ title }} | Dezède
 {% endblock %}
 
 {% block extrastyle %}
@@ -14,27 +14,9 @@
     .grp-fixed-footer {
       z-index: 1100;
     }
-
-    {# FIXME: All the lines that follow are a workaround to https://github.com/sehmaschine/django-grappelli/issues/639 #}
-    {#        Remove when fixed. #}
-
-    input+.grp-related-widget-tools,
-    select+.grp-related-widget-tools,
-    textarea+.grp-related-widget-tools,
-    .radiolist+.grp-related-widget-tools,
-    .checkboxlist+.grp-related-widget-tools {
-      position: relative;
-      top: -15px;
-      padding-right: 0;
-    }
-    table td>.grp-related-widget-wrapper {
-      margin-top: -5px !important;
-    }
-    .grp-related-widget-wrapper {
-      margin-bottom: -5px !important;
-    }
-    .grp-tools li a, .grp-tools li span {
-      width: 17px;
+    table.grp-table td a.add-another, table.grp-table th a.add-another {
+      top: inherit;
+      margin-bottom: inherit;
     }
   </style>
 {% endblock %}

@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 import io
 import os
 from subprocess import Popen, PIPE
@@ -10,7 +7,6 @@ from django.contrib import messages
 from django.contrib.sites.models import Site
 from django.core.mail import EmailMessage, mail_admins
 from django.http import HttpRequest
-from django.template import RequestContext
 from django.template.loader import render_to_string
 from django.utils import translation
 from django.utils.translation import ugettext_lazy as _
@@ -33,7 +29,7 @@ def xelatex_to_pdf(source_code):
     """
     source_code = remove_windows_newlines(source_code)
 
-    tmp_dir = getattr(settings, 'TMP_DIR', settings.BASE_DIR.child('tmp'))
+    tmp_dir = getattr(settings, 'TMP_DIR', str(settings.BASE_DIR / 'tmp'))
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
 
@@ -123,13 +119,13 @@ def send_pdf(context, template_name, subject, filename, user_pk, site_pk,
              language_code):
     translation.activate(language_code)
     user = HierarchicUser.objects.get(pk=user_pk)
+    request = HttpRequest()
+    request.user = user
     context.update(
+        request=request,
         user=user,
         SITE=Site.objects.get(pk=site_pk),
         source_dict={})
-    request = HttpRequest()
-    request.user = user
-    context = RequestContext(request, context)
     try:
         tex = render_to_string(template_name, context)
     except JobTimeoutException:
@@ -141,9 +137,9 @@ def send_pdf(context, template_name, subject, filename, user_pk, site_pk,
         pdf_content = xelatex_to_pdf(tex).read()
     except RuntimeError as e:
         mail = get_failure_mail(subject, user)
-        mail_admins('Error while generating `%s`' % filename, e.body)
+        mail_admins(f'Error while generating `{filename}`', e.body)
     else:
-        mail = get_success_mail(subject, user, filename + '.pdf', pdf_content,
+        mail = get_success_mail(subject, user, f'{filename}.pdf', pdf_content,
                                 'application/pdf')
 
     mail.send()
@@ -158,14 +154,14 @@ def send_export(exporter_instance, extension, subject, filename, user_pk,
     request = HttpRequest()
     request.user = user
     try:
-        file_content = getattr(exporter_instance, 'to_' + extension)()
+        file_content = getattr(exporter_instance, f'to_{extension}')()
     except JobTimeoutException:
         get_failure_mail(subject, user).send()
         unlock_user(user)
         raise
     if isinstance(file_content, tuple):
         extension, file_content = file_content
-    filename += '.' + extension
+    filename += f'.{extension}'
     get_success_mail(subject, user, filename, file_content,
                      exporter_instance.CONTENT_TYPES[extension]).send()
     unlock_user(user)

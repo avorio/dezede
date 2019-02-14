@@ -8,14 +8,16 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2016-06-25 00:46+0200\n"
+"POT-Creation-Date: 2016-10-11 19:33+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: \n"
+"Last-Translator: Yannick Simon <yannick.simon@univ-rouen.fr>, 2016\n"
+"Language-Team: English (https://www.transifex.com/bertrandbordage/"
+"teams/11498/en/)\n"
+"Language: en\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: admin.py:39 models.py:162
 msgid "note"
@@ -141,12 +143,12 @@ msgid "Insuffisant"
 msgstr "Inadequate"
 
 #: templates/examens/source.html:41
-msgid "Bien\\u202f! Plus que quelques erreurs à corriger"
-msgstr "Good! A few errors left"
+msgid "Bien ! Plus que quelques erreurs à corriger"
+msgstr "Good ! A few errors left"
 
 #: templates/examens/source.html:43
-msgid "Très bien\\u202f! Encore un tout petit effort"
-msgstr "Very good! One more effort"
+msgid "Très bien ! Encore un tout petit effort"
+msgstr "Very good ! Still a little more effort"
 
 #: templates/examens/source.html:52
 msgid "Source à transcrire"
@@ -194,7 +196,7 @@ msgstr "Wrong case and diacritic"
 
 #: utils.py:62
 msgid "Caractère erroné"
-msgstr "Erroneous character"
+msgstr "Wrong character"
 
 #: views.py:49
 msgid ""

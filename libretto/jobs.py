@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from datetime import datetime
 
 from django.utils.translation import ugettext_lazy as _
@@ -28,7 +25,7 @@ def export_events(extension):
         exporter = EvenementExporter(Evenement.objects.filter(pk__in=pk_list))
         n = len(pk_list)
         subject = _('de %s événements') % n
-        filename = '%s-evenements_%s' % (n, datetime.today().date().isoformat())
+        filename = f'{n}-evenements_{datetime.today().date().isoformat()}'
         send_export(exporter, extension, subject, filename, user_pk,
                     language_code)
     return inner

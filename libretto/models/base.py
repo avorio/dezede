@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from collections import defaultdict
 import datetime
 import json
@@ -9,7 +6,9 @@ from subprocess import check_output, CalledProcessError, PIPE
 
 from django.conf import settings
 from django.contrib.admin.models import LogEntry
-from django.core.exceptions import NON_FIELD_ERRORS, FieldError, ValidationError
+from django.core.exceptions import (
+    NON_FIELD_ERRORS, FieldError, ValidationError)
+from django.core.validators import MinLengthValidator, RegexValidator
 from django.db.models import (
     Model, CharField, BooleanField, ForeignKey, TextField,
     Manager, PROTECT, Q, SmallIntegerField, Count, DateField, TimeField,
@@ -18,15 +17,14 @@ from django.db.models import (
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django.template.defaultfilters import time
-from django.utils.encoding import python_2_unicode_compatible, force_text
+from django.utils.encoding import force_text
 from django.utils.html import strip_tags
-from django.utils.translation import (
-    ungettext_lazy, ugettext, ugettext_lazy as _)
+from django.utils.translation import ugettext, ugettext_lazy as _
 from autoslug import AutoSlugField
-from mptt.managers import TreeManager
-from mptt.querysets import TreeQuerySet
 from slugify import Slugify
 from tinymce.models import HTMLField
+from tree.fields import PathField
+from tree.query import TreeQuerySetMixin
 
 from cache_tools import invalidate_object
 from common.utils.base import OrderedDefaultDict
@@ -73,12 +71,17 @@ def calc_pluriel(obj, attr_base='nom', attr_suffix='_pluriel'):
     Sinon renvoie force_text(obj).
     """
     try:
-        pluriel = getattr(obj, attr_base + attr_suffix)
+        pluriel = getattr(obj, f'{attr_base}{attr_suffix}')
         if pluriel:
             return pluriel
-        return getattr(obj, attr_base) + 's'
+        return f'{getattr(obj, attr_base)}s'
     except (AttributeError, TypeError):
         return force_text(obj)
+
+
+ISNI_VALIDATORS = [
+    MinLengthValidator(16),
+    RegexValidator(r'^\d{15}[\dxX]$', _('Numéro d’ISNI invalide.'))]
 
 
 #
@@ -86,14 +89,21 @@ def calc_pluriel(obj, attr_base='nom', attr_suffix='_pluriel'):
 #
 
 
+def get_related_fields(meta):
+    return [
+        f for f in meta.get_fields()
+        if (f.one_to_many or f.one_to_one)
+        and f.auto_created and not f.concrete
+    ] + [f for f in meta.get_fields(include_hidden=True)
+         if f.many_to_many and f.auto_created]
+
+
 # TODO: Personnaliser order_by pour simuler automatiquement NULLS LAST
 # en faisant comme https://coderwall.com/p/cjluxg
 class CommonQuerySet(TypographicQuerySet):
     def _get_no_related_objects_filter_kwargs(self):
         meta = self.model._meta
-        return {r.get_accessor_name(): None for r in
-                meta.get_all_related_objects()
-                + meta.get_all_related_many_to_many_objects()}
+        return {r.get_accessor_name(): None for r in get_related_fields(meta)}
 
     def with_related_objects(self):
         return self.exclude(**self._get_no_related_objects_filter_kwargs())
@@ -157,8 +167,7 @@ class CommonModel(TypographicModel):
         return errors
 
     def _has_related_objects__fallback(self):
-        relations = self._meta.get_all_related_objects() \
-            + self._meta.get_all_related_many_to_many_objects()
+        relations = get_related_fields(self._meta)
         for r in relations:
             try:
                 v = getattr(self, r.get_accessor_name())
@@ -179,15 +188,12 @@ class CommonModel(TypographicModel):
     has_related_objects.boolean = True
     has_related_objects.short_description = _('a des objets liés')
 
-    def get_related_counts(self):
-        attrs = [f.get_accessor_name()
-                 for f in self._meta.get_all_related_objects()
-                        + self._meta.get_all_related_many_to_many_objects()]
-        return self.__class__._default_manager.filter(pk=self.pk) \
-            .aggregate(**{attr: Count(attr) for attr in attrs})
-
     def get_related_count(self):
-        return sum(self.get_related_counts().values())
+        count = 0
+        for field in get_related_fields(self._meta):
+            count += (self.__class__._default_manager.filter(pk=self.pk)
+                      .aggregate(n=Count(field.get_accessor_name()))['n'])
+        return count
 
     @classmethod
     def class_name(cls):
@@ -247,7 +253,7 @@ def _get_default_etat():
         'message': '<p>Cette donnée a été créée récemment et nécessite '
                    'plusieurs relectures.  À lire avec précaution.</p>',
         'public': True,
-    })[0].pk  # TODO: Remove .pk when switching to Django 1.9.
+    })[0]
 
 
 class PublishedModel(CommonModel):
@@ -296,7 +302,10 @@ class SlugModel(Model):
 
     def get_slug(self):
         invalidate_object(self)
-        return force_text(self)
+        s = slugify_unicode(force_text(self))
+        if not s:
+            return force_text(self._meta.verbose_name)
+        return s
 
 
 class UniqueSlugModel(Model):
@@ -309,22 +318,25 @@ class UniqueSlugModel(Model):
 
     def get_slug(self):
         invalidate_object(self)
-        return force_text(self)
+        s = slugify_unicode(force_text(self))
+        if not s:
+            return force_text(self._meta.verbose_name)
+        return s
 
 
-class CommonTreeQuerySet(CommonQuerySet, TreeQuerySet):
+class CommonTreeQuerySet(TreeQuerySetMixin, CommonQuerySet):
     pass
 
 
-class CommonTreeManager(CommonManager, TreeManager):
+class CommonTreeManager(CommonManager):
     queryset_class = CommonTreeQuerySet
 
     def get_queryset(self):
         return self.queryset_class(self.model, using=self._db).order_by(
-            self.tree_id_attr, self.left_attr)
+            [f.name for f in self.model._meta.fields
+             if isinstance(f, PathField)][0])
 
 
-@python_2_unicode_compatible
 class AncrageSpatioTemporel(object):
     def __init__(self, not_null_fields=(),
                  has_date=True, has_heure=True, has_lieu=True, approx=True,
@@ -343,6 +355,9 @@ class AncrageSpatioTemporel(object):
         self.column = None
         self.concrete = False
         self.auto_created = False
+        self.one_to_many = False
+        self.one_to_one = False
+        self.many_to_many = False
         self.editable = True
         self.primary_key = False
         self.unique = False
@@ -356,6 +371,9 @@ class AncrageSpatioTemporel(object):
         self.db_column = None
         self.db_tablespace = settings.DEFAULT_INDEX_TABLESPACE
         self.auto_created = False
+
+    def get_col(self, *args, **kwargs):
+        return list(self.fields.values())[0].get_col(*args, **kwargs)
 
     def create_fields(self):
         fields = []
@@ -385,8 +403,8 @@ class AncrageSpatioTemporel(object):
             fields.append(('lieu', ForeignKey(
                 'Lieu', blank=is_null, null=is_null, verbose_name=_('lieu'),
                 on_delete=PROTECT,
-                related_name='%s_%s_set' % (self.model._meta.model_name,
-                                            self.name))))
+                related_name=f'{self.model._meta.model_name}_'
+                             f'{self.name}_set')))
             if self.approx:
                 is_null = 'lieu_approx' not in self.not_null_fields
                 fields.append(('lieu_approx', CharField(
@@ -406,17 +424,17 @@ class AncrageSpatioTemporel(object):
                     and isinstance(getattr(parent, name),
                                    AncrageSpatioTemporel)):
                 return
-        self.prefix = '' if name == 'ancrage' else name + '_'
+        self.prefix = '' if name == 'ancrage' else f'{name}_'
 
         self.fields = self.create_fields()
 
-        self.admin_order_field = self.prefix + self.fields[0][0]
+        self.admin_order_field = f'{self.prefix}{self.fields[0][0]}'
 
         model._meta.add_field(self, virtual=True)
         setattr(model, name, self)
 
         for fieldname, field in self.fields:
-            field.contribute_to_class(model, self.prefix+fieldname)
+            field.contribute_to_class(model, f'{self.prefix}{fieldname}')
 
         self.fields = dict(self.fields)
 
@@ -430,12 +448,12 @@ class AncrageSpatioTemporel(object):
             if key == 'instance':
                 raise
             if self.instance_bound() and key in self.fields:
-                return getattr(self.instance, self.prefix+key)
+                return getattr(self.instance, f'{self.prefix}{key}')
             raise
 
     def __setattr__(self, key, value):
         if self.instance_bound() and key in self.fields:
-            setattr(self.instance, self.prefix + key, value)
+            setattr(self.instance, f'{self.prefix}{key}', value)
         else:
             super(AncrageSpatioTemporel, self).__setattr__(key, value)
 
@@ -458,7 +476,7 @@ class AncrageSpatioTemporel(object):
         return strip_tags(self.html(tags=False, short=True))
 
     def __repr__(self):
-        return '<AncrageSpatioTemporel: %s>' % self.name
+        return f'<AncrageSpatioTemporel: {self.name}>'
 
     def date_str(self, tags=True, short=False):
         if not self.has_date:
@@ -526,7 +544,6 @@ class AncrageSpatioTemporel(object):
         return False
 
 
-@python_2_unicode_compatible
 class TypeDeParente(CommonModel):
     nom = CharField(_('nom'), max_length=100, help_text=LOWER_MSG,
                     db_index=True)
@@ -549,7 +566,7 @@ class TypeDeParente(CommonModel):
         return calc_pluriel(self, attr_base='nom_relatif')
 
     def __str__(self):
-        return '%s (%s)' % (self.nom, self.nom_relatif)
+        return f'{self.nom} ({self.nom_relatif})'
 
 
 #
@@ -612,7 +629,6 @@ class FichierManager(CommonManager):
         return self.get_queryset().group_by_type()
 
 
-@python_2_unicode_compatible
 class Fichier(CommonModel):
     source = ForeignKey('Source', related_name='fichiers')
     fichier = FileField(_('fichier'), upload_to='files/')
@@ -646,8 +662,8 @@ class Fichier(CommonModel):
     objects = FichierManager()
 
     class Meta(object):
-        verbose_name = ungettext_lazy('fichier', 'fichiers', 1)
-        verbose_name_plural = ungettext_lazy('fichier', 'fichiers', 2)
+        verbose_name = _('fichier')
+        verbose_name_plural = _('fichiers')
         ordering = ('position',)
 
     def __str__(self):
@@ -692,7 +708,7 @@ class Fichier(CommonModel):
             fichier_complet_filename = self._get_normalized_filename(''.join(l))
             qs = self.source.fichiers.exclude(
                 pk=self.pk).filter(
-                fichier__regex=r'^(?:.+/)?%s$' % fichier_complet_filename)
+                fichier__regex=fr'^(?:.+/)?{fichier_complet_filename}$')
             if len(qs) < 1:
                 raise ValidationError(_('Il n’y a pas d’enregistrement entier '
                                         'pour cet extrait.'))
@@ -769,7 +785,6 @@ class Fichier(CommonModel):
         self.update_extract_from()
 
 
-@python_2_unicode_compatible
 class Etat(CommonModel, UniqueSlugModel):
     nom = CharField(_('nom'), max_length=200, help_text=LOWER_MSG, unique=True)
     nom_pluriel = CharField(_('nom (au pluriel)'), max_length=230, blank=True,
@@ -780,8 +795,8 @@ class Etat(CommonModel, UniqueSlugModel):
     public = BooleanField(_('publié'), default=True, db_index=True)
 
     class Meta(object):
-        verbose_name = ungettext_lazy('état', 'états', 1)
-        verbose_name_plural = ungettext_lazy('état', 'états', 2)
+        verbose_name = _('état')
+        verbose_name_plural = _('états')
         ordering = ('slug',)
 
     def __str__(self):

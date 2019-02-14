@@ -1,7 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals, division
-
 from collections import defaultdict
 from difflib import SequenceMatcher
 try:
@@ -11,7 +7,7 @@ except ImportError:  # Python 2
 import re
 
 from bs4 import BeautifulSoup, NavigableString
-from django.utils.encoding import force_text, python_2_unicode_compatible
+from django.utils.encoding import force_text
 from django.utils.six import text_type
 from django.utils.translation import ungettext, ugettext_lazy as _
 
@@ -63,7 +59,6 @@ PENALITIES_MESSAGES = {
 }
 
 
-@python_2_unicode_compatible
 class HTMLAnnotatedChar(text_type):
     def __new__(cls, c='', is_tag=False, names=(), classes=()):
         self = super(HTMLAnnotatedChar, cls).__new__(cls, force_text(c))
@@ -86,7 +81,6 @@ class Appended:
     end = False
 
 
-@python_2_unicode_compatible
 class HTMLAnnotatedCharList(list):
     def __init__(self, html):
         self.html = html

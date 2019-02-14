@@ -1,10 +1,7 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 import os
 from django.contrib.sites.models import Site
-from django.core.urlresolvers import reverse
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.urls import reverse
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver import ActionChains
 from selenium.webdriver import PhantomJS, Firefox

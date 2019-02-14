@@ -1,6 +1,3 @@
-# coding: utf-8
-
-from __future__ import unicode_literals
 from datetime import datetime, timedelta
 from random import randrange, choice
 from django.db.models import Count, F
@@ -71,7 +68,7 @@ def on_this_day(context):
     out = h3(ugettext('Il y a %s ans aujourd’hui')
              % (now.year - e.debut_date.year))
     out += h4(ugettext('On donnait %s') % event_oeuvres(e))
-    out += p('à %s' % e.debut_lieu.ancestors_until_referent()[0])
+    out += p(ugettext('à %s') % e.debut_lieu.ancestors_until_referent()[0])
     out += read_more(e)
     return out
 
